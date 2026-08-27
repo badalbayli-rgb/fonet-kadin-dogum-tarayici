@@ -2,7 +2,7 @@
   "use strict";
 
   const APP_KEY = "__FONET_KADIN_DOGUM_TARAYICI__";
-  const VERSION = "1.3.0";
+  const VERSION = "1.3.1";
   if (window[APP_KEY]?.destroy) window[APP_KEY].destroy();
 
   const state = {
@@ -460,7 +460,12 @@
   function renderRows() {
     const tbody = document.getElementById("fkd-results");
     if (!tbody) return;
-    const rows = uniqueResults().slice(-100).reverse();
+    const dateNumber = value => {
+      const match = clean(value).match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})(?:\D+(\d{1,2}):(\d{2}))?/);
+      if (!match) return 0;
+      return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]), Number(match[4] || 0), Number(match[5] || 0)).getTime();
+    };
+    const rows = uniqueResults().sort((a, b) => dateNumber(b.operationDate) - dateNumber(a.operationDate));
     tbody.innerHTML = rows.map(x => `
       <tr>
         <td>${escapeHtml(x.patientName || "-")}</td>

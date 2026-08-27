@@ -9,6 +9,7 @@ FONET HBYS ameliyat listesindeki kadın ve erkek tüm kayıtları ExtJS veri dep
 - Konsültasyon servisini kadın ve erkek tüm ameliyat kayıtları için kontrollü paralel sorgular.
 - Sonuçta yalnızca Kadın Hastalıkları ve Doğum / Kadın Doğum / Jinekoloji / Obstetri / Perinatoloji konsültasyonu bulunan kayıtları listeler.
 - İstem nedeni, konsültasyon yanıtı, tarih, hasta ve ameliyat bilgilerini gösterir.
+- Bulunan sonuçların tamamını ameliyat tarihine göre yeniden eskiye gösterir; ekranda 100 kayıt sınırı uygulamaz.
 - Duraklatma, devam etme, durdurma ve CSV dışa aktarma sunar.
 - Verileri yalnızca tarayıcı belleğinde tutar; başka bir sunucuya göndermez.
 
