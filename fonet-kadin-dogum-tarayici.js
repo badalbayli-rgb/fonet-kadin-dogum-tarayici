@@ -2,12 +2,14 @@
   "use strict";
 
   const APP_KEY = "__FONET_KADIN_DOGUM_TARAYICI__";
-  const VERSION = "1.1.1";
+  const VERSION = "1.2.0";
   if (window[APP_KEY]?.destroy) window[APP_KEY].destroy();
 
   const state = {
     version: VERSION,
     sourceOperationCount: 0,
+    genderProcessed: 0,
+    genderResolved: false,
     operations: [],
     results: [],
     errors: [],
@@ -50,6 +52,12 @@
     const gender = trLower(genderText(value)).replace(/[^a-z0-9ğüşöçı]/g, "");
     return gender === "k" || gender === "f" || gender === "2" ||
       gender.includes("kadın") || gender.includes("kadin") || gender.includes("female");
+  }
+
+  function isMaleGender(value) {
+    const gender = trLower(genderText(value)).replace(/[^a-z0-9ğüşöçı]/g, "");
+    return gender === "e" || gender === "m" || gender === "1" ||
+      gender.includes("erkek") || (gender.includes("male") && !gender.includes("female"));
   }
 
   function findGenderAnywhere(data) {
@@ -123,7 +131,11 @@
       "hastaId", "HASTA_ID", "HASTAID", "hasta.id", "hastaGelis.hasta.id",
       "birimSevk.hastaGelis.hasta.id"
     ])) || deepFindId(data, x => x.kimlik || x.tcKimlikNo || x.kimlikNo);
-    return { hastaGelisId, hastaId };
+    const birimSevkId = clean(findValue(data, [
+      "birimSevkId", "BIRIM_SEVK_ID", "BIRIMSEVKID", "hastaBirimSevkId",
+      "HASTA_BIRIM_SEVK_ID", "birimSevk.id", "hastaBirimSevk.id"
+    ])) || deepFindId(data, x => x.hastaGelis && (x.birim || x.sevkTarihi));
+    return { hastaGelisId, hastaId, birimSevkId };
   }
 
   function operationFromRecord(record, grid) {
@@ -148,6 +160,9 @@
       birthDate: clean(findValue(data, ["dogumTarihi", "DOGUM_TARIHI", "hasta.dogumTarihi", "hastaGelis.hasta.dogumTarihi"])),
       hastaGelisId: ids.hastaGelisId,
       hastaId: ids.hastaId,
+      birimSevkId: ids.birimSevkId,
+      sourceRecord: record,
+      sourceGrid: grid,
       raw: data
     };
   }
@@ -189,18 +204,103 @@
     const operations = selected.records.map(record => operationFromRecord(record, selected.grid));
     const meaningful = operations.filter(x => x.patientName || x.identityNo || x.hastaGelisId);
     if (!meaningful.length) throw new Error("Seçilen tabloda hasta kayıtları bulunamadı.");
-    const femaleOperations = meaningful.filter(x => isFemaleGender(x.gender));
     state.sourceOperationCount = meaningful.length;
-    state.operations = femaleOperations;
-    if (!femaleOperations.length) {
-      throw new Error("Ameliyat listesi bulundu ancak kadın cinsiyetli kayıt saptanamadı. Cinsiyet alanı HBYS kaydında görünür olmalı.");
-    }
+    state.genderProcessed = 0;
+    state.genderResolved = false;
+    state.operations = meaningful;
     return {
       gridId: selected.grid?.id || "-",
-      count: femaleOperations.length,
+      count: meaningful.length,
       sourceCount: meaningful.length,
       score: Math.round(selected.score)
     };
+  }
+
+  function genderFromPatientPayload(payload) {
+    const root = payload?.data || payload || {};
+    const sevk = root.hastaBirimSevk || root.birimSevk || root;
+    const hasta = sevk?.hastaGelis?.hasta || root?.hastaGelis?.hasta || root?.hasta || {};
+    return genderText(hasta?.kimlik?.cinsiyet?.adi || hasta?.kimlik?.cinsiyet || hasta?.cinsiyet?.adi || hasta?.cinsiyet || "");
+  }
+
+  async function genderFromService(operation) {
+    if (!operation.birimSevkId) return "";
+    try {
+      const payload = await apiJson(`/Tibbi/HastaBirimSevk/getSevkUyariInfo/${encodeURIComponent(operation.birimSevkId)}`);
+      return genderFromPatientPayload(payload);
+    } catch { return ""; }
+  }
+
+  function currentPatientGender() {
+    try {
+      const fields = Ext.ComponentQuery.query("textfield, displayfield, field");
+      for (const field of fields) {
+        const label = trLower(`${field.fieldLabel || ""} ${field.name || ""} ${field.itemId || ""}`);
+        const value = clean(field.getValue?.() ?? field.value ?? field.getRawValue?.() ?? "");
+        if ((label.includes("cinsiyet") || isFemaleGender(value) || isMaleGender(value)) && (isFemaleGender(value) || isMaleGender(value))) return value;
+      }
+    } catch {}
+    return "";
+  }
+
+  function currentOperationNo() {
+    try {
+      const fields = Ext.ComponentQuery.query("textfield, displayfield, field");
+      for (const field of fields) {
+        const label = trLower(`${field.fieldLabel || ""} ${field.name || ""} ${field.itemId || ""}`);
+        if (!label.includes("işlem no") && !label.includes("islem no") && !label.includes("islemno")) continue;
+        return clean(field.getValue?.() ?? field.value ?? field.getRawValue?.() ?? "");
+      }
+    } catch {}
+    return "";
+  }
+
+  async function genderFromSelectedRow(operation) {
+    const grid = operation.sourceGrid;
+    const record = operation.sourceRecord;
+    if (!grid || !record) return "";
+    try {
+      grid.getSelectionModel?.().select(record, false, false);
+      grid.getView?.().focusRow?.(record);
+    } catch { return ""; }
+    for (let attempt = 0; attempt < 24; attempt++) {
+      await sleep(50);
+      const value = currentPatientGender();
+      const shownOperationNo = currentOperationNo();
+      const correctRow = !operation.operationNo || !shownOperationNo || shownOperationNo.includes(operation.operationNo);
+      if (correctRow && (isFemaleGender(value) || isMaleGender(value))) return value;
+    }
+    return "";
+  }
+
+  async function resolveFemaleOperations() {
+    const all = [...state.operations];
+    const female = all.filter(x => isFemaleGender(x.gender));
+    let unknown = all.filter(x => !isFemaleGender(x.gender) && !isMaleGender(x.gender));
+    state.genderProcessed = all.length - unknown.length;
+
+    const serviceQueue = unknown.filter(x => x.birimSevkId);
+    await Promise.all(Array.from({ length: 8 }, async () => {
+      while (serviceQueue.length && !state.stopped) {
+        const operation = serviceQueue.shift();
+        if (!operation) return;
+        operation.gender = await genderFromService(operation);
+        state.genderProcessed++;
+        if (isFemaleGender(operation.gender)) female.push(operation);
+        render();
+      }
+    }));
+
+    unknown = unknown.filter(x => !isFemaleGender(x.gender) && !isMaleGender(x.gender));
+    for (const operation of unknown) {
+      if (state.stopped) break;
+      operation.gender = await genderFromSelectedRow(operation);
+      state.genderProcessed++;
+      if (isFemaleGender(operation.gender)) female.push(operation);
+      render();
+    }
+    state.operations = female;
+    return female;
   }
 
   function baseUrl() {
@@ -280,6 +380,21 @@
       try { collectOperations(); }
       catch (error) { setMessage(error.message, true); return; }
     }
+    if (!state.genderResolved) {
+      state.running = true;
+      state.stopped = false;
+      setMessage("Cinsiyetler HBYS hasta bilgi alanından okunuyor. Lütfen bekleyin…");
+      render();
+      await resolveFemaleOperations();
+      state.running = false;
+      state.genderResolved = true;
+      if (!state.operations.length) {
+        setMessage("Kadın hasta bulunamadı. Cinsiyeti okunamayan kayıtlar varsa HBYS hasta bilgisi yüklenmemiş olabilir.", true);
+        render();
+        return;
+      }
+      setMessage(`${state.sourceOperationCount} ameliyat kaydında ${state.operations.length} kadın bulundu. Kadın doğum konsültasyonları taranıyor…`);
+    }
     state.running = true;
     state.paused = false;
     state.stopped = false;
@@ -355,7 +470,9 @@
     const percent = total ? Math.round(state.processed / total * 100) : 0;
     const stats = document.getElementById("fkd-stats");
     const progress = document.getElementById("fkd-progress-bar");
-    if (stats) stats.textContent = `Toplam ameliyat: ${state.sourceOperationCount} | Kadın: ${total} | İşlenen kadın: ${state.processed} | Kadın doğum konsültasyonu: ${uniqueResults().length} | Hata: ${state.errors.length}`;
+    if (stats) stats.textContent = state.genderResolved
+      ? `Toplam ameliyat: ${state.sourceOperationCount} | Kadın: ${total} | İşlenen kadın: ${state.processed} | Kadın doğum konsültasyonu: ${uniqueResults().length} | Hata: ${state.errors.length}`
+      : `Toplam ameliyat: ${state.sourceOperationCount} | Cinsiyeti okunan: ${state.genderProcessed} | Kadın doğum konsültasyonu: 0`;
     if (progress) progress.style.width = `${percent}%`;
     const start = document.getElementById("fkd-start");
     const pause = document.getElementById("fkd-pause");
@@ -404,7 +521,7 @@
     document.getElementById("fkd-find").onclick = () => {
       try {
         const found = collectOperations();
-        setMessage(`${found.sourceCount} ameliyat kaydının ${found.count} tanesi kadın. Tarama yalnızca bu kadın hastalarda yapılacak (tablo: ${found.gridId}).`);
+        setMessage(`${found.sourceCount} ameliyat kaydı bulundu. Taramayı Başlat'a basınca cinsiyetler üstteki HBYS hasta bilgi alanından okunacak; konsültasyon sorgusu yalnızca kadınlarda yapılacak (tablo: ${found.gridId}).`);
         render();
       } catch (error) { setMessage(error.message, true); }
     };
