@@ -5,6 +5,7 @@ FONET HBYS ameliyat listesindeki kayıtları ExtJS veri deposundan toplu okur ve
 ## Özellikler
 
 - Ekranda açık ameliyat listesini tek seferde toplar ve yalnızca kadın hastaları ayırır.
+- Cinsiyeti ayrı alanın yanında `Yaş / Cinsiyet` gibi birleşik HBYS değerlerinden de tanır.
 - Hasta geliş kimliklerini otomatik çıkarır.
 - Konsültasyon servisini yalnızca kadın hastalar için kontrollü paralel sorgular.
 - Sonuçta yalnızca Kadın Hastalıkları ve Doğum / Kadın Doğum / Jinekoloji konsültasyonu bulunan kadınları listeler.

@@ -2,7 +2,7 @@
   "use strict";
 
   const APP_KEY = "__FONET_KADIN_DOGUM_TARAYICI__";
-  const VERSION = "1.1.0";
+  const VERSION = "1.1.1";
   if (window[APP_KEY]?.destroy) window[APP_KEY].destroy();
 
   const state = {
@@ -48,8 +48,24 @@
 
   function isFemaleGender(value) {
     const gender = trLower(genderText(value)).replace(/[^a-z0-9ğüşöçı]/g, "");
-    return gender === "kadın" || gender === "kadin" || gender === "k" ||
-      gender === "female" || gender === "f" || gender === "2";
+    return gender === "k" || gender === "f" || gender === "2" ||
+      gender.includes("kadın") || gender.includes("kadin") || gender.includes("female");
+  }
+
+  function findGenderAnywhere(data) {
+    const direct = findValue(data, [
+      "cinsiyetAdi", "CINSIYET_ADI", "cinsiyet", "CINSIYET", "cinsiyeti",
+      "yasCinsiyet", "YAS_CINSIYET", "yasVeCinsiyet", "YAS_VE_CINSIYET",
+      "hasta.cinsiyet.adi", "hasta.cinsiyet.kodu", "hasta.cinsiyet",
+      "hastaGelis.hasta.cinsiyet.adi", "hastaGelis.hasta.cinsiyet.kodu", "hastaGelis.hasta.cinsiyet"
+    ]);
+    if (genderText(direct)) return genderText(direct);
+    for (const value of Object.values(flattenObject(data))) {
+      const text = trLower(value);
+      if (text.includes("kadın") || text.includes("kadin") || text.includes("female")) return clean(value);
+      if (text.includes("erkek") || text.includes("male")) return clean(value);
+    }
+    return "";
   }
 
   function readPath(object, path) {
@@ -128,11 +144,7 @@
       operationName: clean(findValue(data, ["ameliyatAdi", "AMELIYAT_ADI", "ameliyat", "AMELIYAT", "hizmetAdi", "HIZMET_ADI", "islemAdi"])),
       patientName,
       identityNo: clean(findValue(data, ["kimlikNo", "KIMLIK_NO", "tcKimlikNo", "TC_KIMLIK_NO", "hasta.kimlikNo", "hastaGelis.hasta.kimlikNo"])),
-      gender: genderText(findValue(data, [
-        "cinsiyetAdi", "CINSIYET_ADI", "cinsiyet", "CINSIYET", "cinsiyeti",
-        "hasta.cinsiyet.adi", "hasta.cinsiyet.kodu", "hasta.cinsiyet",
-        "hastaGelis.hasta.cinsiyet.adi", "hastaGelis.hasta.cinsiyet.kodu", "hastaGelis.hasta.cinsiyet"
-      ])),
+      gender: findGenderAnywhere(data),
       birthDate: clean(findValue(data, ["dogumTarihi", "DOGUM_TARIHI", "hasta.dogumTarihi", "hastaGelis.hasta.dogumTarihi"])),
       hastaGelisId: ids.hastaGelisId,
       hastaId: ids.hastaId,
