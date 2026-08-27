@@ -2,7 +2,7 @@
   "use strict";
 
   const APP_KEY = "__FONET_KADIN_DOGUM_TARAYICI__";
-  const VERSION = "1.3.2";
+  const VERSION = "1.3.3";
   if (window[APP_KEY]?.destroy) window[APP_KEY].destroy();
 
   const state = {
@@ -157,6 +157,11 @@
       operationName: clean(findValue(data, ["ameliyatAdi", "AMELIYAT_ADI", "ameliyat", "AMELIYAT", "hizmetAdi", "HIZMET_ADI", "islemAdi"])),
       patientName,
       identityNo: clean(findValue(data, ["kimlikNo", "KIMLIK_NO", "tcKimlikNo", "TC_KIMLIK_NO", "hasta.kimlikNo", "hastaGelis.hasta.kimlikNo"])),
+      phone: clean(findValue(data, [
+        "telefon", "TELEFON", "telefonNo", "TELEFON_NO", "cepTelefonu", "CEP_TELEFONU", "cepTelefon",
+        "gsm", "GSM", "hasta.telefon", "hasta.cepTelefonu", "hasta.kimlik.telefon", "hasta.kimlik.cepTelefonu",
+        "hastaGelis.hasta.telefon", "hastaGelis.hasta.cepTelefonu", "hastaGelis.hasta.kimlik.cepTelefonu"
+      ])),
       gender: findGenderAnywhere(data),
       birthDate: clean(findValue(data, ["dogumTarihi", "DOGUM_TARIHI", "hasta.dogumTarihi", "hastaGelis.hasta.dogumTarihi"])),
       hastaGelisId: ids.hastaGelisId,
@@ -338,6 +343,20 @@
     };
   }
 
+  function contactFromObject(data) {
+    return {
+      identityNo: clean(findValue(data, [
+        "kimlikNo", "KIMLIK_NO", "tcKimlikNo", "TC_KIMLIK_NO", "tckn",
+        "hasta.kimlik.kimlikNo", "hasta.kimlik.tcKimlikNo", "hastaGelis.hasta.kimlik.kimlikNo"
+      ])),
+      phone: clean(findValue(data, [
+        "telefon", "TELEFON", "telefonNo", "TELEFON_NO", "cepTelefonu", "CEP_TELEFONU", "cepTelefon",
+        "gsm", "GSM", "mobilTelefon", "hasta.telefon", "hasta.cepTelefonu", "hasta.kimlik.telefon",
+        "hasta.kimlik.cepTelefonu", "hastaGelis.hasta.telefon", "hastaGelis.hasta.cepTelefonu"
+      ]))
+    };
+  }
+
   function isGynecology(consult) {
     return /kadın hastalıkları ve doğum|kadın doğum|jinekoloji|jinekolojik|obstetri|perinatoloji|perinatology/i.test(`${consult.consultationUnit} ${consult.requestReason} ${consult.answer}`);
   }
@@ -346,7 +365,28 @@
     if (!operation.hastaGelisId) throw new Error("hastaGelisId bulunamadı");
     const payload = await apiJson(`/Poliklinik/Poliklinik/getHastaGelisKonsultasyonList/${encodeURIComponent(operation.hastaGelisId)}/1`);
     const rows = Array.isArray(payload?.data) ? payload.data : [];
-    return rows.map(consultationFromRaw).filter(isGynecology).map(consult => ({ ...operation, ...consult }));
+    const gynecologyRows = rows.filter(raw => isGynecology(consultationFromRaw(raw)));
+    if (!gynecologyRows.length) return [];
+
+    let identityNo = operation.identityNo;
+    let phone = operation.phone;
+    for (const raw of gynecologyRows) {
+      const contact = contactFromObject(raw);
+      identityNo ||= contact.identityNo;
+      phone ||= contact.phone;
+    }
+
+    const fallbackSevkId = operation.birimSevkId || clean(gynecologyRows[0]?.birimSevk?.id || "");
+    if ((!identityNo || !phone) && fallbackSevkId) {
+      try {
+        const patientPayload = await apiJson(`/Tibbi/HastaBirimSevk/getSevkUyariInfo/${encodeURIComponent(fallbackSevkId)}`);
+        const contact = contactFromObject(patientPayload);
+        identityNo ||= contact.identityNo;
+        phone ||= contact.phone;
+      } catch {}
+    }
+
+    return gynecologyRows.map(consultationFromRaw).map(consult => ({ ...operation, identityNo, phone, ...consult }));
   }
 
   async function waitWhilePaused() {
@@ -449,12 +489,12 @@
 
   function downloadCsv() {
     const headers = [
-      "Ameliyat No", "Ameliyat Tarihi", "Ameliyat", "Hasta", "TC Kimlik No", "Cinsiyet", "Doğum Tarihi",
+      "Ameliyat No", "Ameliyat Tarihi", "Ameliyat", "Hasta", "TC Kimlik No", "Telefon", "Cinsiyet", "Doğum Tarihi",
       "Hasta Geliş ID", "Konsültasyon Tarihi", "Kadın Doğum Birimi", "İsteyen Birim", "İsteyen Doktor",
       "Gebe İfadesi", "İstem Nedeni", "Konsültasyon Yanıtı", "Durum"
     ];
     const rows = sortedResults().map(x => [
-      x.operationNo, x.operationDate, x.operationName, x.patientName, x.identityNo, x.gender, x.birthDate,
+      x.operationNo, x.operationDate, x.operationName, x.patientName, x.identityNo, x.phone, x.gender, x.birthDate,
       x.hastaGelisId, x.consultationDate, x.consultationUnit, x.requestingUnit, x.requestingDoctor,
       hasPregnancyMention(x) ? "EVET" : "HAYIR", x.requestReason, x.answer, x.status
     ]);
@@ -482,6 +522,8 @@
       <tr class="${hasPregnancyMention(x) ? "fkd-pregnant" : ""}">
         <td>${hasPregnancyMention(x) ? '<span class="fkd-badge">GEBE</span>' : "-"}</td>
         <td>${escapeHtml(x.patientName || "-")}</td>
+        <td>${escapeHtml(x.identityNo || "-")}</td>
+        <td>${escapeHtml(x.phone || "-")}</td>
         <td>${escapeHtml(x.operationDate || "-")}</td>
         <td>${escapeHtml(x.consultationDate || "-")}</td>
         <td>${escapeHtml(x.consultationUnit || "-")}</td>
@@ -541,7 +583,7 @@
         <div id="fkd-message">Önce HBYS ameliyat sorgusunu çalıştırın, sonra Listeyi Bul'a basın.</div>
         <strong id="fkd-stats">Toplam ameliyat: 0 | İşlenen: 0 | Kadın doğum konsültasyonu: 0 | “Gebe” geçen: 0 | Hata: 0</strong>
         <div class="progress"><div id="fkd-progress-bar"></div></div>
-        <div class="table-wrap"><table><thead><tr><th>Grup</th><th>Hasta</th><th>Ameliyat</th><th>Konsültasyon</th><th>Birim</th><th>İstem nedeni</th><th>Yanıt</th></tr></thead><tbody id="fkd-results"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Grup</th><th>Hasta</th><th>TC Kimlik No</th><th>Telefon</th><th>Ameliyat</th><th>Konsültasyon</th><th>Birim</th><th>İstem nedeni</th><th>Yanıt</th></tr></thead><tbody id="fkd-results"></tbody></table></div>
       </div>`;
     document.documentElement.appendChild(panel);
     state.panel = panel;
