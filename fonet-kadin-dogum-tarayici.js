@@ -2,7 +2,7 @@
   "use strict";
 
   const APP_KEY = "__FONET_KADIN_DOGUM_TARAYICI__";
-  const VERSION = "1.2.0";
+  const VERSION = "1.3.0";
   if (window[APP_KEY]?.destroy) window[APP_KEY].destroy();
 
   const state = {
@@ -10,6 +10,7 @@
     sourceOperationCount: 0,
     genderProcessed: 0,
     genderResolved: false,
+    genderFilter: "all",
     operations: [],
     results: [],
     errors: [],
@@ -273,9 +274,10 @@
     return "";
   }
 
-  async function resolveFemaleOperations() {
+  async function resolveOperationsByGender(targetGender) {
     const all = [...state.operations];
-    const female = all.filter(x => isFemaleGender(x.gender));
+    const matches = value => targetGender === "female" ? isFemaleGender(value) : isMaleGender(value);
+    const matched = all.filter(x => matches(x.gender));
     let unknown = all.filter(x => !isFemaleGender(x.gender) && !isMaleGender(x.gender));
     state.genderProcessed = all.length - unknown.length;
 
@@ -286,7 +288,7 @@
         if (!operation) return;
         operation.gender = await genderFromService(operation);
         state.genderProcessed++;
-        if (isFemaleGender(operation.gender)) female.push(operation);
+        if (matches(operation.gender)) matched.push(operation);
         render();
       }
     }));
@@ -296,11 +298,11 @@
       if (state.stopped) break;
       operation.gender = await genderFromSelectedRow(operation);
       state.genderProcessed++;
-      if (isFemaleGender(operation.gender)) female.push(operation);
+      if (matches(operation.gender)) matched.push(operation);
       render();
     }
-    state.operations = female;
-    return female;
+    state.operations = matched;
+    return matched;
   }
 
   function baseUrl() {
@@ -337,7 +339,7 @@
   }
 
   function isGynecology(consult) {
-    return /kadın hastalıkları ve doğum|kadın doğum|jinekoloji|obstetri/i.test(`${consult.consultationUnit} ${consult.requestReason} ${consult.answer}`);
+    return /kadın hastalıkları ve doğum|kadın doğum|jinekoloji|jinekolojik|obstetri|perinatoloji|perinatology/i.test(`${consult.consultationUnit} ${consult.requestReason} ${consult.answer}`);
   }
 
   async function scanOperation(operation) {
@@ -380,21 +382,26 @@
       try { collectOperations(); }
       catch (error) { setMessage(error.message, true); return; }
     }
-    if (!state.genderResolved) {
+    state.genderFilter = document.getElementById("fkd-gender")?.value || "all";
+    if (state.genderFilter !== "all" && !state.genderResolved) {
       state.running = true;
       state.stopped = false;
-      setMessage("Cinsiyetler HBYS hasta bilgi alanından okunuyor. Lütfen bekleyin…");
+      const genderLabel = state.genderFilter === "female" ? "kadın" : "erkek";
+      setMessage(`Cinsiyetler HBYS hasta bilgi alanından okunuyor; ${genderLabel} hastalar ayrılıyor…`);
       render();
-      await resolveFemaleOperations();
+      await resolveOperationsByGender(state.genderFilter);
       state.running = false;
       state.genderResolved = true;
       if (!state.operations.length) {
-        setMessage("Kadın hasta bulunamadı. Cinsiyeti okunamayan kayıtlar varsa HBYS hasta bilgisi yüklenmemiş olabilir.", true);
+        setMessage(`Seçilen ${genderLabel} cinsiyetinde ameliyat kaydı bulunamadı.`, true);
         render();
         return;
       }
-      setMessage(`${state.sourceOperationCount} ameliyat kaydında ${state.operations.length} kadın bulundu. Kadın doğum konsültasyonları taranıyor…`);
+    } else {
+      state.genderResolved = true;
     }
+    const selectionLabel = state.genderFilter === "female" ? "kadın" : state.genderFilter === "male" ? "erkek" : "kadın ve erkek tüm";
+    setMessage(`${state.operations.length} ${selectionLabel} ameliyat kaydının konsültasyonları taranıyor; kadın doğum, jinekoloji, obstetri ve perinatoloji sonuçlara alınacak…`);
     state.running = true;
     state.paused = false;
     state.stopped = false;
@@ -470,9 +477,7 @@
     const percent = total ? Math.round(state.processed / total * 100) : 0;
     const stats = document.getElementById("fkd-stats");
     const progress = document.getElementById("fkd-progress-bar");
-    if (stats) stats.textContent = state.genderResolved
-      ? `Toplam ameliyat: ${state.sourceOperationCount} | Kadın: ${total} | İşlenen kadın: ${state.processed} | Kadın doğum konsültasyonu: ${uniqueResults().length} | Hata: ${state.errors.length}`
-      : `Toplam ameliyat: ${state.sourceOperationCount} | Cinsiyeti okunan: ${state.genderProcessed} | Kadın doğum konsültasyonu: 0`;
+    if (stats) stats.textContent = `Toplam ameliyat: ${state.sourceOperationCount} | İşlenen: ${state.processed} | Kadın doğum konsültasyonu: ${uniqueResults().length} | Hata: ${state.errors.length}`;
     if (progress) progress.style.width = `${percent}%`;
     const start = document.getElementById("fkd-start");
     const pause = document.getElementById("fkd-pause");
@@ -497,6 +502,7 @@
         #fonet-kd-app *{box-sizing:border-box} #fonet-kd-app header{padding:14px 18px;background:#0f4c81;color:#fff;display:flex;align-items:center;justify-content:space-between}
         #fonet-kd-app h1{font-size:18px;margin:0} #fonet-kd-app .body{padding:14px;display:flex;flex-direction:column;gap:10px;min-height:0;flex:1}
         #fonet-kd-app button{border:0;border-radius:7px;padding:9px 13px;font-weight:700;cursor:pointer;background:#0b79bd;color:#fff;margin-right:6px}
+        #fonet-kd-app select{border:1px solid #94a3b8;border-radius:7px;padding:8px 28px 8px 9px;margin:0 10px 0 5px;background:#fff}
         #fonet-kd-app button.alt{background:#475569} #fonet-kd-app button.stop{background:#b91c1c} #fonet-kd-app button:disabled{opacity:.4;cursor:not-allowed}
         #fonet-kd-app .progress{height:9px;background:#dbe5ec;border-radius:6px;overflow:hidden} #fkd-progress-bar{height:100%;width:0;background:#16a34a;transition:width .2s}
         #fonet-kd-app .table-wrap{overflow:auto;flex:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px}
@@ -506,12 +512,13 @@
       <header><h1>FONET Kadın Doğum Konsültasyon Tarayıcı <small>v${VERSION}</small></h1><button id="fkd-close" class="alt">Kapat</button></header>
       <div class="body">
         <div>
+          <label for="fkd-gender"><strong>Cinsiyet:</strong></label><select id="fkd-gender"><option value="all">Tümü</option><option value="female">Kadın</option><option value="male">Erkek</option></select>
           <button id="fkd-find">Listeyi Bul</button><button id="fkd-start" disabled>Taramayı Başlat</button>
           <button id="fkd-pause" class="alt" disabled>Duraklat</button><button id="fkd-stop" class="stop" disabled>Durdur</button>
           <button id="fkd-csv" class="alt">CSV İndir</button>
         </div>
         <div id="fkd-message">Önce HBYS ameliyat sorgusunu çalıştırın, sonra Listeyi Bul'a basın.</div>
-        <strong id="fkd-stats">Toplam ameliyat: 0 | Kadın: 0 | İşlenen kadın: 0 | Kadın doğum konsültasyonu: 0 | Hata: 0</strong>
+        <strong id="fkd-stats">Toplam ameliyat: 0 | İşlenen: 0 | Kadın doğum konsültasyonu: 0 | Hata: 0</strong>
         <div class="progress"><div id="fkd-progress-bar"></div></div>
         <div class="table-wrap"><table><thead><tr><th>Hasta</th><th>Ameliyat</th><th>Konsültasyon</th><th>Birim</th><th>İstem nedeni</th><th>Yanıt</th></tr></thead><tbody id="fkd-results"></tbody></table></div>
       </div>`;
@@ -521,7 +528,7 @@
     document.getElementById("fkd-find").onclick = () => {
       try {
         const found = collectOperations();
-        setMessage(`${found.sourceCount} ameliyat kaydı bulundu. Taramayı Başlat'a basınca cinsiyetler üstteki HBYS hasta bilgi alanından okunacak; konsültasyon sorgusu yalnızca kadınlarda yapılacak (tablo: ${found.gridId}).`);
+        setMessage(`${found.sourceCount} ameliyat kaydı bulundu. Cinsiyet seçimini yapıp taramayı başlatın; yalnızca kadın doğum konsültasyonları listelenecek (tablo: ${found.gridId}).`);
         render();
       } catch (error) { setMessage(error.message, true); }
     };

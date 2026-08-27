@@ -1,15 +1,13 @@
 # FONET Kadın Doğum Konsültasyon Tarayıcı
 
-FONET HBYS ameliyat listesindeki kayıtları ExtJS veri deposundan toplu okur ve HBYS'nin kendi konsültasyon servisini kullanarak kadın doğum konsültasyonlarını tarar.
+FONET HBYS ameliyat listesindeki kadın ve erkek tüm kayıtları ExtJS veri deposundan toplu okur ve HBYS'nin kendi konsültasyon servisini kullanarak kadın doğum konsültasyonlarını tarar.
 
 ## Özellikler
 
-- Ekranda açık ameliyat listesini tek seferde toplar ve yalnızca kadın hastaları ayırır.
-- Cinsiyeti ayrı alanın yanında `Yaş / Cinsiyet` gibi birleşik HBYS değerlerinden de tanır.
-- Cinsiyet ameliyat tablosunda yoksa hasta/sevk servisinden; bu da mümkün değilse satırı seçerek üstteki gerçek `Yaş / Cinsiyet` alanından okur.
+- Ekranda açık ameliyat listesini tek seferde toplar; kullanıcı `Tümü`, `Kadın` veya `Erkek` seçebilir.
 - Hasta geliş kimliklerini otomatik çıkarır.
-- Konsültasyon servisini yalnızca kadın hastalar için kontrollü paralel sorgular.
-- Sonuçta yalnızca Kadın Hastalıkları ve Doğum / Kadın Doğum / Jinekoloji konsültasyonu bulunan kadınları listeler.
+- Konsültasyon servisini kadın ve erkek tüm ameliyat kayıtları için kontrollü paralel sorgular.
+- Sonuçta yalnızca Kadın Hastalıkları ve Doğum / Kadın Doğum / Jinekoloji / Obstetri / Perinatoloji konsültasyonu bulunan kayıtları listeler.
 - İstem nedeni, konsültasyon yanıtı, tarih, hasta ve ameliyat bilgilerini gösterir.
 - Duraklatma, devam etme, durdurma ve CSV dışa aktarma sunar.
 - Verileri yalnızca tarayıcı belleğinde tutar; başka bir sunucuya göndermez.
