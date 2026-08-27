@@ -10,6 +10,7 @@ FONET HBYS ameliyat listesindeki kadın ve erkek tüm kayıtları ExtJS veri dep
 - Sonuçta yalnızca Kadın Hastalıkları ve Doğum / Kadın Doğum / Jinekoloji / Obstetri / Perinatoloji konsültasyonu bulunan kayıtları listeler.
 - İstem nedeni, konsültasyon yanıtı, tarih, hasta ve ameliyat bilgilerini gösterir.
 - Bulunan sonuçların tamamını ameliyat tarihine göre yeniden eskiye gösterir; ekranda 100 kayıt sınırı uygulamaz.
+- İstem veya yanıtta `gebe` geçen konsültasyonları sarı renkle işaretleyip listenin en üstünde ayrı gruplar; CSV'ye `Gebe İfadesi` sütunu ekler.
 - Duraklatma, devam etme, durdurma ve CSV dışa aktarma sunar.
 - Verileri yalnızca tarayıcı belleğinde tutar; başka bir sunucuya göndermez.
 

@@ -2,7 +2,7 @@
   "use strict";
 
   const APP_KEY = "__FONET_KADIN_DOGUM_TARAYICI__";
-  const VERSION = "1.3.1";
+  const VERSION = "1.3.2";
   if (window[APP_KEY]?.destroy) window[APP_KEY].destroy();
 
   const state = {
@@ -426,6 +426,23 @@
     });
   }
 
+  function hasPregnancyMention(item) {
+    return trLower(`${item?.requestReason || ""} ${item?.answer || ""}`).includes("gebe");
+  }
+
+  function operationDateNumber(value) {
+    const match = clean(value).match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})(?:\D+(\d{1,2}):(\d{2}))?/);
+    if (!match) return 0;
+    return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]), Number(match[4] || 0), Number(match[5] || 0)).getTime();
+  }
+
+  function sortedResults() {
+    return uniqueResults().sort((a, b) =>
+      Number(hasPregnancyMention(b)) - Number(hasPregnancyMention(a)) ||
+      operationDateNumber(b.operationDate) - operationDateNumber(a.operationDate)
+    );
+  }
+
   function csvEscape(value) {
     return `"${String(value ?? "").replace(/"/g, '""')}"`;
   }
@@ -434,12 +451,12 @@
     const headers = [
       "Ameliyat No", "Ameliyat Tarihi", "Ameliyat", "Hasta", "TC Kimlik No", "Cinsiyet", "Doğum Tarihi",
       "Hasta Geliş ID", "Konsültasyon Tarihi", "Kadın Doğum Birimi", "İsteyen Birim", "İsteyen Doktor",
-      "İstem Nedeni", "Konsültasyon Yanıtı", "Durum"
+      "Gebe İfadesi", "İstem Nedeni", "Konsültasyon Yanıtı", "Durum"
     ];
-    const rows = uniqueResults().map(x => [
+    const rows = sortedResults().map(x => [
       x.operationNo, x.operationDate, x.operationName, x.patientName, x.identityNo, x.gender, x.birthDate,
       x.hastaGelisId, x.consultationDate, x.consultationUnit, x.requestingUnit, x.requestingDoctor,
-      x.requestReason, x.answer, x.status
+      hasPregnancyMention(x) ? "EVET" : "HAYIR", x.requestReason, x.answer, x.status
     ]);
     const csv = "\ufeff" + [headers, ...rows].map(row => row.map(csvEscape).join(";")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -460,14 +477,10 @@
   function renderRows() {
     const tbody = document.getElementById("fkd-results");
     if (!tbody) return;
-    const dateNumber = value => {
-      const match = clean(value).match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})(?:\D+(\d{1,2}):(\d{2}))?/);
-      if (!match) return 0;
-      return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]), Number(match[4] || 0), Number(match[5] || 0)).getTime();
-    };
-    const rows = uniqueResults().sort((a, b) => dateNumber(b.operationDate) - dateNumber(a.operationDate));
+    const rows = sortedResults();
     tbody.innerHTML = rows.map(x => `
-      <tr>
+      <tr class="${hasPregnancyMention(x) ? "fkd-pregnant" : ""}">
+        <td>${hasPregnancyMention(x) ? '<span class="fkd-badge">GEBE</span>' : "-"}</td>
         <td>${escapeHtml(x.patientName || "-")}</td>
         <td>${escapeHtml(x.operationDate || "-")}</td>
         <td>${escapeHtml(x.consultationDate || "-")}</td>
@@ -482,7 +495,9 @@
     const percent = total ? Math.round(state.processed / total * 100) : 0;
     const stats = document.getElementById("fkd-stats");
     const progress = document.getElementById("fkd-progress-bar");
-    if (stats) stats.textContent = `Toplam ameliyat: ${state.sourceOperationCount} | İşlenen: ${state.processed} | Kadın doğum konsültasyonu: ${uniqueResults().length} | Hata: ${state.errors.length}`;
+    const results = uniqueResults();
+    const pregnancyCount = results.filter(hasPregnancyMention).length;
+    if (stats) stats.textContent = `Toplam ameliyat: ${state.sourceOperationCount} | İşlenen: ${state.processed} | Kadın doğum konsültasyonu: ${results.length} | “Gebe” geçen: ${pregnancyCount} | Hata: ${state.errors.length}`;
     if (progress) progress.style.width = `${percent}%`;
     const start = document.getElementById("fkd-start");
     const pause = document.getElementById("fkd-pause");
@@ -513,6 +528,7 @@
         #fonet-kd-app .table-wrap{overflow:auto;flex:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px}
         #fonet-kd-app table{border-collapse:collapse;width:100%;font-size:12px} #fonet-kd-app th{position:sticky;top:0;background:#e2e8f0;text-align:left;padding:8px;border-bottom:1px solid #94a3b8}
         #fonet-kd-app td{padding:7px;border-bottom:1px solid #e2e8f0;vertical-align:top;max-width:260px} #fkd-message{min-height:18px}
+        #fonet-kd-app tr.fkd-pregnant td{background:#fff7d6} #fonet-kd-app .fkd-badge{display:inline-block;background:#d97706;color:#fff;border-radius:999px;padding:3px 7px;font-weight:800}
       </style>
       <header><h1>FONET Kadın Doğum Konsültasyon Tarayıcı <small>v${VERSION}</small></h1><button id="fkd-close" class="alt">Kapat</button></header>
       <div class="body">
@@ -523,9 +539,9 @@
           <button id="fkd-csv" class="alt">CSV İndir</button>
         </div>
         <div id="fkd-message">Önce HBYS ameliyat sorgusunu çalıştırın, sonra Listeyi Bul'a basın.</div>
-        <strong id="fkd-stats">Toplam ameliyat: 0 | İşlenen: 0 | Kadın doğum konsültasyonu: 0 | Hata: 0</strong>
+        <strong id="fkd-stats">Toplam ameliyat: 0 | İşlenen: 0 | Kadın doğum konsültasyonu: 0 | “Gebe” geçen: 0 | Hata: 0</strong>
         <div class="progress"><div id="fkd-progress-bar"></div></div>
-        <div class="table-wrap"><table><thead><tr><th>Hasta</th><th>Ameliyat</th><th>Konsültasyon</th><th>Birim</th><th>İstem nedeni</th><th>Yanıt</th></tr></thead><tbody id="fkd-results"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Grup</th><th>Hasta</th><th>Ameliyat</th><th>Konsültasyon</th><th>Birim</th><th>İstem nedeni</th><th>Yanıt</th></tr></thead><tbody id="fkd-results"></tbody></table></div>
       </div>`;
     document.documentElement.appendChild(panel);
     state.panel = panel;
