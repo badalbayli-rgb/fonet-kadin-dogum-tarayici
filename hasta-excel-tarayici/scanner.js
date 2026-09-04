@@ -93,7 +93,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.5.1</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.5.2</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -309,8 +309,8 @@
     if(/SUBKSİFOİD|SUBKSIFOID|SUBXİPHOID|SUBXIPHOID/.test(source)||(belowXiphoid!==null&&belowXiphoid<=3))return'M1 (Subksifoid)';
     if(/SUPRAPUBİK|SUPRAPUBIK/.test(source)||(abovePubis!==null&&abovePubis<=3))return'M5 (Suprapubik)';
     if(/İNFRAUMBİLİKAL|INFRAUMBILIKAL|ALT ORTA HAT/.test(source)||(belowUmb!==null&&belowUmb>3)||(abovePubis!==null&&abovePubis>3))return'M4 (İnfraumbilikal)';
-    if(/PERİUMBİLİKAL|PERIUMBILIKAL|UMBİLİKAL|UMBILIKAL|UMBLİKAL|G[ÖO]BEK ÇEVRES/.test(source)||(aboveUmb!==null&&aboveUmb<=3)||(belowUmb!==null&&belowUmb<=3))return'M3 (Umbilikal)';
     if(/EPİGASTRİK|EPIGASTRIK|ÜST ORTA HAT|SUPRAUMBİLİKAL|SUPRAUMBILIKAL/.test(source)||(aboveUmb!==null&&aboveUmb>3)||(belowXiphoid!==null&&belowXiphoid>3))return'M2 (Epigastrik)';
+    if(/PERİUMBİLİKAL|PERIUMBILIKAL|PARAUMBİLİKAL|PARAUMBILIKAL|UMBİLİKAL|UMBILIKAL|UMBLİKAL|G[ÖO]BEK ÇEVRES/.test(source)||(aboveUmb!==null&&aboveUmb<=3)||(belowUmb!==null&&belowUmb<=3))return'M3 (Umbilikal)';
     return'';
   }
   function derive(patient, details){
@@ -333,7 +333,8 @@
     const diagnoses=upper(allHistory);
     const complications=[]; if(/NEKROZ/.test(all))complications.push('Nekroz');if(/SEROMA/.test(all))complications.push('Seroma');if(/YARA ENFEKSİY|CERRAHİ ALAN ENFEKSİY|ENFEKSİYON/.test(all))complications.push('Enfeksiyon');if(/DEHİS|EVİSSER/.test(all))complications.push('Dehisens');
     const imagingAndNote=`${(details.imaging||[]).join(' | ')} | ${note}`;
-    const defect=(imagingAndNote.match(/(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*cm/i)||[]).slice(1).join(' x ');
+    const focusedDefect=imagingAndNote.match(/(?:DEF[Eİ]KT|HERNİ|HERNIA|FASYA)[^|.]{0,100}?(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*cm/i)||imagingAndNote.match(/(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*cm[^|.]{0,70}?(?:DEF[Eİ]KT|HERNİ|HERNIA|FASYA)/i);
+    const defect=(focusedDefect||[]).slice(1,3).join(' x ');
     const location=classifyEhsLocation(details.imaging,note);
     const dischargeDates=(details.dischargeFields||[]).map(parseDateTime).filter(x=>x&&surgeryDate&&x>=surgeryDate).sort((a,b)=>a-b);
     const discharge=dischargeDates[0]||null;
@@ -427,7 +428,12 @@
     const end=deepValue(detailRoot,['ameliyatBitisSaati','ameliyatBitisSaat','ameliyatSonSaati','ameliyatTamamlanmaSaati']);
     const time=x=>(norm(x).match(/\b\d{1,2}:\d{2}\b/)||[])[0]||'';
     if(time(start)&&time(end))return`${time(start)} ${time(end)}`;
-    const ordered=Object.entries(flatObject(detailRoot)).filter(([path])=>/saatbilgisi/i.test(path.replace(/[^a-z0-9]/gi,''))).flatMap(([,value])=>norm(value).match(/\b\d{1,2}:\d{2}\b/g)||[]);
+    const entries=Object.entries(flatObject(detailRoot));
+    const byPath=rx=>time(entries.find(([path,value])=>rx.test(path.replace(/[^a-z0-9]/gi,'').toLowerCase())&&time(value))?.[1]);
+    const pathStart=byPath(/ameliyat.*(?:baslangic|baslama|bassaati|start)/);
+    const pathEnd=byPath(/ameliyat.*(?:bitis|tamamlanma|sonsaati|end)/);
+    if(pathStart&&pathEnd)return`${pathStart} ${pathEnd}`;
+    const ordered=entries.filter(([path])=>/saatbilgisi/i.test(path.replace(/[^a-z0-9]/gi,''))).flatMap(([,value])=>norm(value).match(/\b\d{1,2}:\d{2}\b/g)||[]);
     const unique=uniq(ordered);
     return unique.length>=2?unique.slice(-2).join(' '):'';
   }
@@ -443,9 +449,18 @@
   }
   async function radiologyHistory(patient){
     if(!patient.gelisId)return[];
-    const filter=encodeURIComponent(JSON.stringify([{property:'hastaGelisId',value:Number(patient.gelisId)||patient.gelisId,filterType:'kriterPanel',type:'Long',operator:'='}]));
-    const payload=await settled(`/Ris/RisHizmetSonuc/getRisHizmetSonucInfoList?start=0&limit=500&page=1&filter=${filter}`);
-    return payload.__error?[]:payloadRows(payload).map(x=>objectText(x));
+    const id=Number(patient.gelisId)||patient.gelisId;
+    const filters=['hastaGelisId','hastaGelis.id'].map(property=>encodeURIComponent(JSON.stringify([{property,value:id,filterType:'kriterPanel',type:'Long',operator:'='}])));
+    const paths=[
+      `/Ris/RisHizmetSonuc/getRisHizmetSonucInfoList?start=0&limit=500&page=1&hastaGelisId=${encodeURIComponent(id)}`,
+      ...filters.map(filter=>`/Ris/RisHizmetSonuc/getRisHizmetSonucInfoList?start=0&limit=500&page=1&filter=${filter}`)
+    ];
+    for(const path of paths){
+      const payload=await settled(path);if(payload.__error)continue;
+      const rows=payloadRows(payload).filter(row=>Object.values(flatObject(row)).some(value=>norm(value)===norm(patient.gelisId)||norm(value)===norm(patient.birimSevkId)));
+      if(rows.length)return rows.map(x=>objectText(x));
+    }
+    return[];
   }
   async function settled(path){try{return await apiJson(path);}catch(error){return{__error:String(error.message||error)};}}
   async function operationHistory(patient){
