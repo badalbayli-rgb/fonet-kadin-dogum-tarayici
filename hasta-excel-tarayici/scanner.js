@@ -16,8 +16,9 @@
   const click = (el, dbl = false) => {
     if (!el) return;
     el.scrollIntoView({block: 'center', inline: 'nearest'});
-    ['mousedown', 'mouseup', 'click'].forEach(type => el.dispatchEvent(new MouseEvent(type, {bubbles:true, cancelable:true, view:el.ownerDocument.defaultView})));
-    if (dbl) el.dispatchEvent(new MouseEvent('dblclick', {bubbles:true, cancelable:true, detail:2, view:el.ownerDocument.defaultView}));
+    const fire=(type,detail)=>el.dispatchEvent(new MouseEvent(type,{bubbles:true,cancelable:true,detail,view:el.ownerDocument.defaultView}));
+    ['mousedown','mouseup','click'].forEach(type=>fire(type,1));
+    if(dbl){['mousedown','mouseup','click'].forEach(type=>fire(type,2));fire('dblclick',2);}
   };
   const setValue = (input, value) => {
     input.focus();
@@ -164,23 +165,35 @@
     return best;
   }
   function extListSource(){
-    let best=null;
+    let best=null;const anchor=openListRows()[0]||null;
     for(const doc of allDocs()){
       const Ext=doc.defaultView.Ext;if(!Ext?.ComponentQuery)continue;
       let grids=[];try{grids=Ext.ComponentQuery.query('gridpanel');}catch{}
       for(const grid of grids){
         const store=grid.getStore?.(),count=store?.getCount?.()||0,total=store?.getTotalCount?.()||count;
-        if(count&&(!best||Math.max(count,total)>Math.max(best.count,best.total)))best={grid,store,count,total};
+        if(!count)continue;
+        const containsAnchor=!!(anchor&&grid.el?.dom?.contains?.(anchor));
+        const keys=Object.keys(store.getAt?.(0)?.data||{}).join(' ');
+        const sample=JSON.stringify(store.getAt?.(0)?.data||{}).slice(0,1800);
+        let score=Math.min(count,2500)/30;
+        if(containsAnchor)score+=10000;
+        if(/islem.?no|işlem.?no|ameliyat|hasta|adi.?soyadi|ad.?soyad/i.test(keys))score+=500;
+        if(/insizyonel|herni|ameliyat|cerrahi/i.test(sample))score+=250;
+        if(/hizmet.?list|laboratuvar|radyoloji|menü|menu/i.test(`${grid.title||''} ${grid.itemId||''}`))score-=1000;
+        if(!best||score>best.score)best={grid,store,count,total,score};
       }
     }
     return best;
   }
   function extRecordData(record,index){
     const data=record?.data||{},entries=Object.entries(data),values=entries.map(x=>norm(x[1])).filter(Boolean),line=values.join(' | ');
-    const byKey=rx=>norm(entries.find(([k])=>rx.test(k))?.[1]);
-    const operationNo=byKey(/islem.*no|işlem.*no|operation/i)||(line.match(/\b\d{6,}\b/g)||[]).at(-1)||'';
-    const surgeryDate=byKey(/ameliyat.*tarih|istek.*tarih|işlem.*tarih/i)||(line.match(/\d{2}\.\d{2}\.\d{4}(?:\s+\d{2}:\d{2}(?::\d{2})?)?/)||[])[0]||'';
-    const name=byKey(/adi.*soyadi|ad.*soyad|hasta.*ad/i)||values.find(x=>/^[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ .'-]{3,}$/i.test(x)&&!/(GENEL|CERRAH|UZMAN|DOKTOR|AMELİYAT|ACİL)/i.test(x))||'';
+    const nk=k=>String(k).replace(/[^a-zA-Z0-9çğıöşüÇĞİÖŞÜ]/g,'').toLocaleLowerCase('tr-TR');
+    const exact=(keys)=>norm(entries.find(([k])=>keys.includes(nk(k)))?.[1]);
+    const operationNo=exact(['islemno','ameliyatno','protokolno'])||(line.match(/\b\d{6,}\b/g)||[]).at(-1)||'';
+    const surgeryDate=exact(['ameliyattarihi','islemtarihi','istemtarihi','tarih','baslamatarihi'])||(line.match(/\d{2}\.\d{2}\.\d{4}(?:\s+\d{2}:\d{2}(?::\d{2})?)?/)||[])[0]||'';
+    let name=exact(['adisoyadi','adsoyad','hastaadisoyadi','hastaadsoyad']);
+    if(!name)name=norm(entries.find(([k])=>/hasta/i.test(k)&&/ad|adi/i.test(k)&&!/doktor|personel/i.test(k))?.[1]);
+    if(!name)name=values.find(x=>/^[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ .'-]{3,}$/i.test(x)&&!/(GENEL|CERRAH|UZMAN|DOKTOR|AMELİYAT|ACİL|AMBULANS|ÜCRET|ALGOLOJİ)/i.test(x))||'';
     return{index,operationNo,surgeryDate,name};
   }
   function selectExtOperation(operationNo,listIndex){
@@ -191,9 +204,10 @@
     try{
       const view=source.grid.getView?.(),node=view?.getNode?.(record);
       source.grid.getSelectionModel?.().select(record);view?.focusRow?.(record);
-      if(node){click(node,true);return true;}
-      view?.fireEvent?.('itemdblclick',view,record,node,listIndex,new MouseEvent('dblclick',{bubbles:true}));
-      source.grid.fireEvent?.('itemdblclick',view,record,node,listIndex,new MouseEvent('dblclick',{bubbles:true}));
+      if(node)click(node,true);
+      const event=new MouseEvent('dblclick',{bubbles:true,cancelable:true,detail:2,view:record?.store?.proxy?.reader?.rawData?.defaultView||window});
+      view?.fireEvent?.('itemdblclick',view,record,node,listIndex,event);
+      source.grid.fireEvent?.('itemdblclick',view,record,node,listIndex,event);
       return true;
     }catch{return false;}
   }
