@@ -97,7 +97,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.3.0</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.3.2</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -174,18 +174,20 @@
     return best;
   }
   function extListSource(){
-    let best=null;const anchor=openListRows()[0]||null;
+    let best=null;
     for(const doc of allDocs()){
       const Ext=doc.defaultView.Ext;if(!Ext?.ComponentQuery)continue;
       let grids=[];try{grids=Ext.ComponentQuery.query('gridpanel');}catch{}
       for(const grid of grids){
         const store=grid.getStore?.(),count=store?.getCount?.()||0,total=store?.getTotalCount?.()||count;
         if(!count)continue;
-        const containsAnchor=!!(anchor&&grid.el?.dom?.contains?.(anchor));
-        const keys=Object.keys(store.getAt?.(0)?.data||{}).join(' ');
+        const keyList=Object.keys(store.getAt?.(0)?.data||{}),keys=keyList.join(' ');
+        const normalizedKeys=keyList.map(k=>String(k).replace(/[^a-z0-9]/gi,'').toLowerCase());
+        const isOperationGrid=['islemno','adisoyadi','gelisid','birimsevkid'].every(k=>normalizedKeys.includes(k));
+        if(!isOperationGrid)continue;
         const sample=JSON.stringify(store.getAt?.(0)?.data||{}).slice(0,1800);
         let score=Math.min(count,2500)/30;
-        if(containsAnchor)score+=10000;
+        score+=10000;
         if(/islem.?no|işlem.?no|ameliyat|hasta|adi.?soyadi|ad.?soyad/i.test(keys))score+=500;
         if(/insizyonel|herni|ameliyat|cerrahi/i.test(sample))score+=250;
         if(/hizmet.?list|laboratuvar|radyoloji|menü|menu/i.test(`${grid.title||''} ${grid.itemId||''}`))score-=1000;
@@ -537,11 +539,25 @@
       state.results={};state.current=0;state.errors=0;persist();$('#fx-start').disabled=false;$('#fx-export').disabled=false;updateStatus(`${state.patients.length} hasta hazırlandı. FONET Ameliyat ekranındayken Taramayı Başlat'a basın.`);log(`${file.name}: ${state.patients.length} hasta yüklendi`);
     }catch(error){updateStatus(`Excel okunamadı: ${error.message||error}`);log(String(error.message||error),true);}
   }
-  function loadFonetList(){
+  async function loadFonetList(){
     try{
       const source=extListSource();
-      const parsed=source&&source.count>openListRows().length
-        ? source.store.getRange().map(extRecordData).filter(x=>x.operationNo)
+      if(!source)throw new Error('Açık ameliyat veri tablosu bulunamadı.');
+      updateStatus(`FONET listesinin tamamı alınıyor: ${source.total||source.count} kayıt...`);
+      let records=source.store.getRange?.()||[];
+      if(source.total>records.length){
+        const proxy=source.store.getProxy?.(),rawUrl=norm(proxy?.url||proxy?.api?.read);
+        if(rawUrl){
+          const url=new URL(rawUrl,location.origin);
+          url.searchParams.set('start','0');url.searchParams.set('page','1');url.searchParams.set('limit',String(source.total));
+          for(const [key,value] of Object.entries(proxy?.extraParams||{}))url.searchParams.set(key,String(value));
+          url.searchParams.set('_dc',String(Date.now()));
+          const response=await fetch(url.href,{credentials:'include',headers:{Accept:'application/json, text/plain, */*'}});
+          if(response.ok){const payload=await response.json();const all=payloadRows(payload);if(all.length>records.length)records=all.map(data=>({data}));}
+        }
+      }
+      const parsed=records.length>openListRows().length
+        ? records.map(extRecordData).filter(x=>x.operationNo)
         : openListRows().map(listRowData).filter(x=>x.operationNo);
       const unique=[...new Map(parsed.map(x=>[`${x.operationNo}|${x.surgeryDate}`,x])).values()];
       if(!unique.length)throw new Error('Açık ameliyat listesinde hasta satırı bulunamadı. Liste ekranını açık ve yüklenmiş bırakın.');
