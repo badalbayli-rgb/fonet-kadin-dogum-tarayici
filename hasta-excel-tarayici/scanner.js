@@ -4,6 +4,19 @@
     const grids=(window.Ext?.ComponentQuery?.query('gridpanel,grid')||[]).map(g=>{let s,p;try{s=g.getStore?.();p=s?.getProxy?.();}catch{}return{id:g.id,title:g.title||'',itemId:g.itemId||'',count:s?.getCount?.()||0,url:p?.url||p?.api?.read||'',extra:p?.extraParams||{},keys:s?.getAt?.(0)?Object.keys(s.getAt(0).data||{}).slice(0,40):[]};});
     console.log('FONET_GRID_DIAG',JSON.stringify(grids));
   } catch {}
+  try {
+    const forms=(window.Ext?.ComponentQuery?.query('form')||[]).map(form=>{
+      let basic,record,values={};
+      try{basic=form.getForm?.();record=basic?.getRecord?.()?.data||null;values=basic?.getValues?.()||{};}catch{}
+      const text=JSON.stringify({record,values});
+      return{id:form.id,itemId:form.itemId||'',record,values,interesting:/ameliyat|islemNo|saatBilgisi|protokolNo/i.test(text)};
+    }).filter(x=>x.interesting);
+    const fields=(window.Ext?.ComponentQuery?.query('field')||[]).map(field=>{
+      let value='';try{value=field.getValue?.()??field.getRawValue?.()??field.value??'';}catch{}
+      return{id:field.id,itemId:field.itemId||'',name:field.name||'',label:field.fieldLabel||'',value};
+    }).filter(x=>/işlem no|islem no|ameliyat saati|an\.baş|an\.bas|post-op|prot\.no/i.test(`${x.label} ${x.name}`));
+    console.log('FONET_FORM_DIAG',JSON.stringify({forms,fields}));
+  } catch {}
   if (window.top !== window || window.__fonetExcelHastaTarayici) return;
   window.__fonetExcelHastaTarayici = true;
 
@@ -97,7 +110,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.3.2</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.3.3</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
