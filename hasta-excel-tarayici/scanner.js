@@ -76,7 +76,7 @@
 
   const state = {
     workbook: null, sheetName: '', rows: [], headers: [], headerMap: new Map(), patients: [],
-    results: {}, mode: 'excel', running: false, paused: false, stopped: false, current: 0, errors: 0
+    results: {}, mode: 'excel', running: false, paused: false, stopped: false, destroyRequested: false, current: 0, errors: 0
   };
 
   const FONET_TEMPLATE_HEADERS = [
@@ -94,9 +94,10 @@
       #fonet-excel-panel input[type=file]{width:100%;margin:4px 0 7px} #fonet-excel-status{white-space:pre-wrap;line-height:1.45;margin:7px 0}
       #fonet-excel-progress{height:9px;background:#dfe8ee;border-radius:8px;overflow:hidden} #fonet-excel-bar{height:100%;width:0;background:#18a058}
       #fonet-excel-log{margin-top:7px;background:#f3f6f8;max-height:160px;overflow:auto;padding:6px;font-size:11px;border-radius:4px}
-      #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
+      #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
+      #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="title">FONET Hasta ve Excel Tarayıcı v1.2.2</div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.2.3</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -413,7 +414,9 @@
       catch(error){state.errors++;state.results[p.tc||`${p.operationNo}|${p.surgeryDate}`]={status:'Hata',error:String(error.message||error)};const r=state.rows[p.rowIndex];r[state.headerMap.get('FONET TARAMA DURUMU')]=`Hata: ${error.message||error}`;log(`${p.name||p.operationNo}: ${error.message||error}`,true);}
       state.current=i+1;persist();updateStatus();await sleep(60);
     }
-    state.running=false;$('#fx-start').disabled=false;$('#fx-pause').disabled=true;$('#fx-stop').disabled=true;$('#fx-export').disabled=false;
+    state.running=false;
+    if(state.destroyRequested){panel.remove();delete window.__fonetExcelHastaTarayici;return;}
+    $('#fx-start').disabled=false;$('#fx-pause').disabled=true;$('#fx-stop').disabled=true;$('#fx-export').disabled=false;
     updateStatus(state.stopped?'Tarama durduruldu. Sonuçlar kaydedildi.':'Tarama tamamlandı. Güncellenmiş Excel indirilebilir.');
   }
   function ensureOutputColumns(){
@@ -460,4 +463,9 @@
   }
   $('#fx-load').onclick=loadExcel;$('#fx-fonet-list').onclick=loadFonetList;$('#fx-start').onclick=run;$('#fx-pause').onclick=()=>{state.paused=!state.paused;$('#fx-pause').textContent=state.paused?'Devam Et':'Duraklat';updateStatus(state.paused?'Tarama duraklatıldı.':'Tarama sürüyor...');};
   $('#fx-stop').onclick=()=>{state.stopped=true;state.paused=false;};$('#fx-export').onclick=exportExcel;
+  $('#fx-close').onclick=()=>{
+    state.stopped=true;state.paused=false;
+    if(state.running){state.destroyRequested=true;panel.style.display='none';}
+    else{panel.remove();delete window.__fonetExcelHastaTarayici;}
+  };
 })();
