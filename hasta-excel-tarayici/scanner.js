@@ -183,11 +183,19 @@
     const name=byKey(/adi.*soyadi|ad.*soyad|hasta.*ad/i)||values.find(x=>/^[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ .'-]{3,}$/i.test(x)&&!/(GENEL|CERRAH|UZMAN|DOKTOR|AMELİYAT|ACİL)/i.test(x))||'';
     return{index,operationNo,surgeryDate,name};
   }
-  function selectExtOperation(operationNo){
+  function selectExtOperation(operationNo,listIndex){
     const source=extListSource();if(!source)return false;
-    let record=null;source.store.each?.(r=>{if(!record&&Object.values(r.data||{}).some(v=>norm(v)===operationNo))record=r;});
+    let record=Number.isInteger(listIndex)?source.store.getAt?.(listIndex):null;
+    if(!record)source.store.each?.(r=>{if(!record&&Object.values(r.data||{}).some(v=>norm(v)===operationNo))record=r;});
     if(!record)return false;
-    try{source.grid.getSelectionModel?.().select(record);source.grid.getView?.().focusRow?.(record);source.grid.fireEvent?.('itemclick',source.grid.getView?.(),record);return true;}catch{return false;}
+    try{
+      const view=source.grid.getView?.(),node=view?.getNode?.(record);
+      source.grid.getSelectionModel?.().select(record);view?.focusRow?.(record);
+      if(node){click(node,true);return true;}
+      view?.fireEvent?.('itemdblclick',view,record,node,listIndex,new MouseEvent('dblclick',{bubbles:true}));
+      source.grid.fireEvent?.('itemdblclick',view,record,node,listIndex,new MouseEvent('dblclick',{bubbles:true}));
+      return true;
+    }catch{return false;}
   }
   function listRowData(row,index){
     const cells=[...row.querySelectorAll('td,[role="gridcell"]')].map(x=>norm(x.innerText)).filter(Boolean);
@@ -299,7 +307,7 @@
     if(patient.mode==='fonet-list'){
       found=openListRows();
       selected=found.find(r=>norm(r.innerText).includes(patient.operationNo))||chooseOperation(found.filter(r=>upper(r.innerText).includes(upper(patient.name))),patient.surgeryDate);
-      if(selected)click(selected);else if(!selectExtOperation(patient.operationNo))throw new Error('Açık listedeki ameliyat satırı yeniden bulunamadı');
+      if(selected)click(selected,true);else if(!selectExtOperation(patient.operationNo,patient.listIndex))throw new Error('Açık listedeki ameliyat satırı yeniden bulunamadı');
     }else{
       const controls=searchControls(); if(!controls)throw new Error('Ameliyat arama ekranı bulunamadı');
       click(controls.clear); await sleep(180); setValue(controls.tcInput,patient.tc); click(controls.query);
@@ -308,7 +316,7 @@
       selected=chooseOperation(found,patient.surgeryDate); click(selected);
     }
     await sleep(350);
-    const loaded=await waitFor(()=>patient.operationNo?fieldValue('İşlem No :')===patient.operationNo:(currentPatientName()||currentTc()),8000);
+    const loaded=await waitFor(()=>upper(currentPatientName())===upper(patient.name)||(currentPatientName()&&currentTc()),10000);
     if(!loaded)throw new Error('Hasta bilgileri yüklenmedi');
     patient.name=currentPatientName()||patient.name;patient.tc=currentTc()||patient.tc;
     if(patient.mode==='fonet-list'){
@@ -316,7 +324,7 @@
     }
     const fields={operationNo:fieldValue('İşlem No :')||patient.operationNo,phone:fieldValue('Telefon')||fieldValue('Cep Telefonu'),ageSex:fieldValue('Yaş / Cinsiyet / D.Tar:'),asa:fieldValue('Asa/Euro Score:'),surgeryTimes:`${fieldValue('Ameliyat Saati')} ${fieldValue('Post-Op Saati')}`};
     const surgeries=found.map(x=>norm(x.innerText));
-    const selectedOperation=norm(selected.innerText);
+    const selectedOperation=selected?norm(selected.innerText):`${patient.surgeryDate} ${patient.name} ${patient.operationNo}`;
     const note=await readTab('Ameliyat Notları',650);
     await readTab('Ameliyat Bilgileri',250);
     const materials=await readTab('İlaç Sarf',650);
@@ -365,7 +373,7 @@
       state.mode='fonet-list';state.workbook=XLSX.utils.book_new();state.sheetName='Hastalar';state.headers=[...FONET_TEMPLATE_HEADERS];
       state.rows=[state.headers,...unique.map(x=>{const r=Array(state.headers.length).fill('');r[0]=x.name;r[2]=x.operationNo;r[7]=x.surgeryDate;return r;})];
       ensureOutputColumns();XLSX.utils.book_append_sheet(state.workbook,XLSX.utils.aoa_to_sheet(state.rows),state.sheetName);
-      state.patients=unique.map((x,i)=>({rowIndex:i+1,name:x.name,tc:'',operationNo:x.operationNo,surgeryDate:x.surgeryDate,mode:'fonet-list'}));
+      state.patients=unique.map((x,i)=>({rowIndex:i+1,name:x.name,tc:'',operationNo:x.operationNo,surgeryDate:x.surgeryDate,listIndex:x.index,mode:'fonet-list'}));
       state.results={};state.current=0;state.errors=0;persist();$('#fx-start').disabled=false;$('#fx-export').disabled=false;
       updateStatus(`${state.patients.length} ameliyat FONET açık listesinden alındı. Taramayı Başlat'a basın.`);log(`FONET listesinden ${state.patients.length} kayıt hazırlandı`);
     }catch(error){updateStatus(error.message||String(error));log(error.message||String(error),true);}
