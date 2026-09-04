@@ -1,5 +1,9 @@
 (() => {
   'use strict';
+  try {
+    const grids=(window.Ext?.ComponentQuery?.query('gridpanel,grid')||[]).map(g=>{let s,p;try{s=g.getStore?.();p=s?.getProxy?.();}catch{}return{id:g.id,title:g.title||'',itemId:g.itemId||'',count:s?.getCount?.()||0,url:p?.url||p?.api?.read||'',extra:p?.extraParams||{},keys:s?.getAt?.(0)?Object.keys(s.getAt(0).data||{}).slice(0,40):[]};});
+    console.log('FONET_GRID_DIAG',JSON.stringify(grids));
+  } catch {}
   if (window.top !== window || window.__fonetExcelHastaTarayici) return;
   window.__fonetExcelHastaTarayici = true;
 
@@ -88,7 +92,7 @@
       #fonet-excel-log{margin-top:7px;background:#f3f6f8;max-height:160px;overflow:auto;padding:6px;font-size:11px;border-radius:4px}
       #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="title">FONET Hasta ve Excel Tarayıcı v1.1.4</div>
+    <div class="title">FONET Hasta ve Excel Tarayıcı v1.1.5</div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -226,14 +230,20 @@
     return best||rows[0]||null;
   }
   function fieldValue(label){
+    return fieldValues(label)[0]||'';
+  }
+  function fieldValues(label){
     const key=upper(label);
+    const found=[];
     for(const doc of allDocs()){
-      for(const box of doc.querySelectorAll('.x-field,.x-form-item,table')){
+      for(const box of doc.querySelectorAll('.x-form-item,.x-field')){
         if(!visible(box)||!upper(box.innerText).includes(key))continue;
-        const input=box.querySelector('input,textarea,.x-form-display-field'); const value=norm(input?.value??input?.innerText); if(value)return value;
+        for(const input of box.querySelectorAll('input,textarea,.x-form-display-field')){
+          const value=norm(input.value??input.innerText);if(value)found.push(value);
+        }
       }
     }
-    return '';
+    return uniq(found);
   }
   function currentPatientName(){return fieldValue('Adı Soyadı:');}
   function currentTc(){
@@ -260,9 +270,10 @@
     click(button);
     const win=await waitFor(()=>elements('.x-window').find(w=>visible(w)&&/Hasta Geçmiş/i.test(norm(w.innerText).slice(0,200))),10000);
     if(!win)throw new Error('Hasta geçmişi açılmadı');
-    await sleep(250);
-    const rows=[...win.querySelectorAll('tr[data-recordindex],[role="row"]')].filter(visible).map(x=>norm(x.innerText)).filter(x=>x.includes(tc)||/\d{2}\.\d{2}\.\d{4}/.test(x));
-    closeWindow(win); await sleep(80); return uniq(rows);
+    try{
+      await sleep(250);
+      return uniq([...win.querySelectorAll('tr[data-recordindex],[role="row"]')].filter(visible).map(x=>norm(x.innerText)).filter(x=>x.includes(tc)||/\d{2}\.\d{2}\.\d{4}/.test(x)));
+    }finally{closeWindow(win);await sleep(80);}
   }
   function quantityFromMaterialRow(text){
     const cells=norm(text).split(/\s+/); const nums=cells.map(x=>Number(String(x).replace(',','.'))).filter(x=>Number.isFinite(x)&&x>0&&x<=10&&Number.isInteger(x));
@@ -277,7 +288,7 @@
     const laterAdmissions=details.history.filter(x=>{const d=parseDate(x);return d&&surgeryDate&&dateDiffDays(surgeryDate,d)>2&&/\bYATIŞ\b/i.test(x);});
     const previousAbdominal=opRows.filter(x=>surgeryDate&&x.date<surgeryDate&&/ABDOM|LAPAROT|LAPAROSK|APPEN|KOLESİST|KOLEKT|REZEKS|GASTREK|HERNİ|FITIK|SEZARYEN|HİSTEREKT|OOFOREKT|SALPEN|KOLON|REKT|İLEOST|KOLOST|PANKREAT|SPLENEKT|BARSAK|BAĞIRSAK|UMBİLİK|MİDE|BYPASS|SLEEVE/i.test(x.text));
     const cancers=uniq(details.history.flatMap(x=>x.match(/\bC\d{2}(?:\.\d+)?-[^|]+/gi)||[]));
-    const materialRows=details.materials.filter(x=>/PROLEN|PROLENE|MESH|MEŞ/i.test(x));
+    const materialRows=details.materials.filter(x=>/MESH|MEŞ|CERRAHİ YAMA|HERNİ YAMASI|YAMA KOMPOZİT|PROLEN(?:E)?\s+(?:MESH|MEŞ|YAMA)/i.test(x)&&!/SÜTÜR|SUTUR|İĞNE|IGNE|YUVARLAK|ÖRGÜLÜ|EMİLEBİLEN|EMILEBILEN/i.test(x));
     const prolenRows=materialRows.filter(x=>/PROLEN|PROLENE/i.test(x));
     const prolenCount=prolenRows.reduce((sum,x)=>sum+quantityFromMaterialRow(x),0);
     const ageSex=details.fields.ageSex||''; const sex=/\((Kadın|Erkek)\)/i.exec(ageSex)?.[1]||''; const age=/^(\d+)/.exec(ageSex)?.[1]||'';
@@ -285,7 +296,13 @@
     if(times.length>=2){const [h1,m1]=times[0].split(':').map(Number),[h2,m2]=times[times.length-1].split(':').map(Number);duration=(h2*60+m2)-(h1*60+m1);if(duration<0)duration+=1440;}
     const diagnoses=upper(allHistory);
     const complications=[]; if(/NEKROZ/.test(all))complications.push('Nekroz');if(/SEROMA/.test(all))complications.push('Seroma');if(/YARA ENFEKSİY|CERRAHİ ALAN ENFEKSİY|ENFEKSİYON/.test(all))complications.push('Enfeksiyon');if(/DEHİS|EVİSSER/.test(all))complications.push('Dehisens');
-    return {surgeryDate,previousHernia,laterHerniaOps,laterAdmissions,previousAbdominal,cancers,materialRows,prolenCount,sex,age,duration,diagnoses,all,note,complications};
+    const defect=(note.match(/(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*cm/i)||[]).slice(1).join(' x ');
+    const location=(note.match(/\b(epigastrik|umbilikal|umblikal|göbek|suprapubik|subkostal|median|paramedian|parastomal|lomber)\b/i)||[])[1]||'';
+    const stayDates=(details.stay||[]).flatMap(x=>norm(x).match(/\d{2}\.\d{2}\.\d{4}(?:\s+\d{2}:\d{2})?/g)||[]).map(x=>({text:x,date:parseDate(x)})).filter(x=>x.date);
+    const before=stayDates.filter(x=>surgeryDate&&x.date<=surgeryDate).sort((a,b)=>b.date-a.date)[0];
+    const after=stayDates.filter(x=>surgeryDate&&x.date>=surgeryDate).sort((a,b)=>a.date-b.date)[0];
+    const stayDays=before&&after?Math.max(1,Math.ceil((after.date-before.date)/86400000)):'';
+    return {surgeryDate,previousHernia,laterHerniaOps,laterAdmissions,previousAbdominal,cancers,materialRows,prolenCount,sex,age,duration,diagnoses,all,note,complications,defect,location,stayDays};
   }
   function applyResult(patient, details){
     const row=state.rows[patient.rowIndex], d=derive(patient,details);
@@ -293,6 +310,7 @@
     setIfFound(row,'phone',details.fields.phone);
     setIfFound(row,'sex',d.sex); setIfFound(row,'age',d.age?Number(d.age):''); setIfFound(row,'asa',details.fields.asa);
     setIfFound(row,'duration',d.duration||''); setIfFound(row,'followup',d.surgeryDate?dateDiffHuman(d.surgeryDate):'');
+    setIfFound(row,'defect',d.defect);setIfFound(row,'location',d.location);setIfFound(row,'stay',d.stayDays);
     setIfFound(row,'recurrence',d.previousHernia.length?1:0);
     setIfFound(row,'followRecurrence',d.laterHerniaOps.length?`Evet – ${d.laterHerniaOps.map(x=>`${dateText(x.date)} ${norm(x.text)}`).join('; ')}`:'Hayır');
     if(d.previousAbdominal.length)setIfFound(row,'preop',d.previousAbdominal.map(x=>`${dateText(x.date)} ${norm(x.text)}`).join('; '));
@@ -312,7 +330,7 @@
     if(d.materialRows.length)setIfFound(row,'graft',uniq(d.materialRows).join('; '));
     if(/DREN/.test(d.note)){const m=d.note.match(/DREN[^|]{0,60}?(\d+)\s*GÜN/i);if(m)setIfFound(row,'drain',`${m[1]} GÜN`);}
     row[state.headerMap.get('PROLEN MESH ADEDİ')] = d.prolenCount||0;
-    row[state.headerMap.get('MALZEME KAYDI')] = d.materialRows.length?uniq(d.materialRows).join('; '):'FONET sarf kaydında mesh/prolen bulunmadı';
+    row[state.headerMap.get('MALZEME KAYDI')] = d.materialRows.length?uniq(d.materialRows).join('; '):'FONET sarf kaydında mesh/yama bulunmadı';
     row[state.headerMap.get('FONET TARAMA DURUMU')] = 'Tamamlandı';
     return d;
   }
@@ -330,21 +348,26 @@
       selected=chooseOperation(found,patient.surgeryDate); click(selected);
     }
     await sleep(350);
-    const loaded=await waitFor(()=>upper(currentPatientName())===upper(patient.name)||(currentPatientName()&&currentTc()),10000);
+    const loaded=await waitFor(()=>{
+      const shownName=upper(currentPatientName()),shownOperation=norm(fieldValue('İşlem No :'));
+      return shownName===upper(patient.name)&&(!patient.operationNo||shownOperation===norm(patient.operationNo));
+    },10000);
     if(!loaded)throw new Error('Hasta bilgileri yüklenmedi');
     patient.name=currentPatientName()||patient.name;patient.tc=currentTc()||patient.tc;
     if(patient.mode==='fonet-list'){
       const row=state.rows[patient.rowIndex];setIfFound(row,'name',patient.name);setIfFound(row,'tc',patient.tc);setIfFound(row,'operationNo',patient.operationNo);setIfFound(row,'surgeryDate',patient.surgeryDate);
     }
-    const fields={operationNo:fieldValue('İşlem No :')||patient.operationNo,phone:fieldValue('Telefon')||fieldValue('Cep Telefonu'),ageSex:fieldValue('Yaş / Cinsiyet / D.Tar:'),asa:fieldValue('Asa/Euro Score:'),surgeryTimes:`${fieldValue('Ameliyat Saati')} ${fieldValue('Post-Op Saati')}`};
+    const fields={operationNo:fieldValue('İşlem No :')||patient.operationNo,phone:fieldValue('Telefon')||fieldValue('Cep Telefonu'),ageSex:fieldValue('Yaş / Cinsiyet / D.Tar:'),asa:fieldValue('Asa/Euro Score:'),surgeryTimes:fieldValues('Ameliyat Saati').join(' ')};
     const surgeries=found.map(x=>norm(x.innerText));
     const selectedOperation=selected?norm(selected.innerText):`${patient.surgeryDate} ${patient.name} ${patient.operationNo}`;
     const note=await readTab('Ameliyat Notları',250);
     await readTab('Ameliyat Bilgileri',80);
     const materials=await readTab('İlaç Sarf',300);
     await readTab('Hizmet Listesi',80);
+    const stay=await readTab('Yatış Özet',220);
+    await readTab('Hizmet Listesi',60);
     const history=patient.tc?await readHistory(patient.tc):[];
-    return{fields,surgeries,selectedOperation,note,materials,history};
+    return{fields,surgeries,selectedOperation,note,materials,history,stay};
   }
   async function run(){
     if(!state.patients.length||state.running)return;

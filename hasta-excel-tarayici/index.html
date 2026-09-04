@@ -16,7 +16,7 @@
   <div id="status" class="notice">Excel listesinden veya FONET'te açık ameliyat listesinden tarama yapılabilir.</div>
   <ol><li>FONET'te ameliyat sorgusunu açın.</li><li>Yer imleri çubuğundaki <b>FONET Hasta Tarayıcı</b>'ya basın.</li><li><b>Excel Listesini Hazırla</b> veya <b>FONET Açık Listeyi Al</b>'ı seçin.</li><li>Taramayı başlatın ve bitince Excel'i indirin.</li></ol>
 </main><script>
-  const loader="(()=>{const u='https://badalbayli-rgb.github.io/fonet-kadin-dogum-tarayici/hasta-excel-tarayici/bookmark.js?v=1.1.4-'+Date.now(),s=document.createElement('script');s.src=u;s.onerror=()=>alert('FONET tarayıcı yüklenemedi');document.documentElement.appendChild(s)})()";
+  const loader="(()=>{const u='https://badalbayli-rgb.github.io/fonet-kadin-dogum-tarayici/hasta-excel-tarayici/bookmark.js?v=1.1.5-'+Date.now(),s=document.createElement('script');s.src=u;s.onerror=()=>alert('FONET tarayıcı yüklenemedi');document.documentElement.appendChild(s)})()";
   const value='javascript:'+loader;
   document.getElementById('bookmark').href=value;
   document.getElementById('copy').onclick=async()=>{await navigator.clipboard.writeText(value);document.getElementById('status').innerHTML='<span class="ok">Yer imi kodu kopyalandı.</span> Yeni yer imi oluşturup URL alanına yapıştırın.'};
