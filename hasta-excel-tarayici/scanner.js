@@ -60,6 +60,10 @@
     const m = norm(text).match(/(\d{2})\.(\d{2})\.(\d{4})/);
     return m ? new Date(+m[3], +m[2]-1, +m[1]) : null;
   };
+  const parseDateTime = text => {
+    const m=norm(text).match(/(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+    return m?new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0)):null;
+  };
   const dateText = d => d ? `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}` : '';
   const dateDiffDays = (a,b) => Math.round((b-a)/86400000);
   const dateDiffHuman = (start, end = new Date()) => {
@@ -92,7 +96,7 @@
       #fonet-excel-log{margin-top:7px;background:#f3f6f8;max-height:160px;overflow:auto;padding:6px;font-size:11px;border-radius:4px}
       #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="title">FONET Hasta ve Excel Tarayıcı v1.1.5</div>
+    <div class="title">FONET Hasta ve Excel Tarayıcı v1.2.2</div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -265,6 +269,17 @@
   async function readTab(tabName, wait=500){
     const btn=exactButton(tabName); if(!btn)return[]; click(btn); await sleep(wait); return collectVisibleText();
   }
+  async function readRadiology(){
+    const btn=exactButton('Radyoloji');if(!btn)return[];click(btn);await sleep(260);
+    const texts=[...collectVisibleText()];
+    const rows=elements('tr[data-recordindex],[role="row"]').filter(r=>visible(r)&&/ABDOM|BATIN|TOMOGRAF|\bBT\b|ULTRASON|\bUSG\b|MRG|MANYETİK/i.test(norm(r.innerText))).slice(0,6);
+    for(const row of rows){
+      click(row);await sleep(100);texts.push(...collectVisibleText());
+      const win=elements('.x-window').find(w=>visible(w)&&/RADYOLOJ|RAPOR|GÖRÜNTÜ/i.test(norm(w.innerText).slice(0,250)));
+      if(win){texts.push(norm(win.innerText));closeWindow(win);await sleep(50);}
+    }
+    return uniq(texts);
+  }
   async function readHistory(tc){
     const button=exactButton('Hasta Geçmişi'); if(!button)throw new Error('Hasta Geçmişi düğmesi bulunamadı');
     click(button);
@@ -279,12 +294,27 @@
     const cells=norm(text).split(/\s+/); const nums=cells.map(x=>Number(String(x).replace(',','.'))).filter(x=>Number.isFinite(x)&&x>0&&x<=10&&Number.isInteger(x));
     return nums.length?nums[nums.length-1]:1;
   }
+  function classifyEhsLocation(imagingText,noteText){
+    const source=upper(`${(imagingText||[]).join(' | ')} | ${noteText||''}`);
+    const distance=(rx)=>{const m=source.match(rx);return m?Number(m[1].replace(',','.')):null;};
+    const aboveUmb=distance(/G[ÖO]BE(?:K|Ğ[İI])(?:N)?\s+(\d+(?:[.,]\d+)?)\s*CM\s+(?:ÜST|YUKARI)/);
+    const belowUmb=distance(/G[ÖO]BE(?:K|Ğ[İI])(?:N)?\s+(\d+(?:[.,]\d+)?)\s*CM\s+(?:ALT|AŞAĞI)/);
+    const belowXiphoid=distance(/(?:KSİFOİD|KSIFOID|XİFOİD|XIPHOID)(?:İN)?\s+(\d+(?:[.,]\d+)?)\s*CM\s+ALT/);
+    const abovePubis=distance(/PUBİ[SK](?:İN)?\s+(\d+(?:[.,]\d+)?)\s*CM\s+(?:ÜST|YUKARI)/);
+    if(/SUBKSİFOİD|SUBKSIFOID|SUBXİPHOID|SUBXIPHOID/.test(source)||(belowXiphoid!==null&&belowXiphoid<=3))return'M1 (Subksifoid)';
+    if(/SUPRAPUBİK|SUPRAPUBIK/.test(source)||(abovePubis!==null&&abovePubis<=3))return'M5 (Suprapubik)';
+    if(/İNFRAUMBİLİKAL|INFRAUMBILIKAL|ALT ORTA HAT/.test(source)||(belowUmb!==null&&belowUmb>3)||(abovePubis!==null&&abovePubis>3))return'M4 (İnfraumbilikal)';
+    if(/PERİUMBİLİKAL|PERIUMBILIKAL|UMBİLİKAL|UMBILIKAL|UMBLİKAL|G[ÖO]BEK ÇEVRES/.test(source)||(aboveUmb!==null&&aboveUmb<=3)||(belowUmb!==null&&belowUmb<=3))return'M3 (Umbilikal)';
+    if(/EPİGASTRİK|EPIGASTRIK|ÜST ORTA HAT|SUPRAUMBİLİKAL|SUPRAUMBILIKAL/.test(source)||(aboveUmb!==null&&aboveUmb>3)||(belowXiphoid!==null&&belowXiphoid>3))return'M2 (Epigastrik)';
+    return'';
+  }
   function derive(patient, details){
-    const surgeryDate=parseDate(patient.surgeryDate)||parseDate(details.selectedOperation);
+    const surgeryDate=parseDateTime(patient.surgeryDate)||parseDateTime(details.selectedOperation);
     const note=details.note.join(' | '), allHistory=details.history.join(' | '), all=upper(`${note} ${allHistory}`);
-    const opRows=details.surgeries.map(text=>({text,date:parseDate(text)})).filter(x=>x.date);
+    const opRows=uniq([...(details.surgeries||[]),...(details.history||[])]).map(text=>({text,date:parseDateTime(text)})).filter(x=>x.date);
     const previousHernia=details.history.filter(x=>/\bK43(?:\.|-)|İNSİZYONEL HERNİ|VENTRAL HERNİ/i.test(x)&&parseDate(x)&&surgeryDate&&parseDate(x)<surgeryDate);
     const laterHerniaOps=opRows.filter(x=>surgeryDate&&x.date>surgeryDate&&/İNSİZYONEL HERNİ|VENTRAL HERNİ/i.test(x.text));
+    const laterDebridement=opRows.filter(x=>surgeryDate&&x.date>surgeryDate&&/YARA[^|]{0,40}DEBRİDMAN|YARA[^|]{0,40}DEBRIDMAN|DEBRİDMAN|DEBRIDMAN/i.test(x.text));
     const laterAdmissions=details.history.filter(x=>{const d=parseDate(x);return d&&surgeryDate&&dateDiffDays(surgeryDate,d)>2&&/\bYATIŞ\b/i.test(x);});
     const previousAbdominal=opRows.filter(x=>surgeryDate&&x.date<surgeryDate&&/ABDOM|LAPAROT|LAPAROSK|APPEN|KOLESİST|KOLEKT|REZEKS|GASTREK|HERNİ|FITIK|SEZARYEN|HİSTEREKT|OOFOREKT|SALPEN|KOLON|REKT|İLEOST|KOLOST|PANKREAT|SPLENEKT|BARSAK|BAĞIRSAK|UMBİLİK|MİDE|BYPASS|SLEEVE/i.test(x.text));
     const cancers=uniq(details.history.flatMap(x=>x.match(/\bC\d{2}(?:\.\d+)?-[^|]+/gi)||[]));
@@ -297,12 +327,11 @@
     const diagnoses=upper(allHistory);
     const complications=[]; if(/NEKROZ/.test(all))complications.push('Nekroz');if(/SEROMA/.test(all))complications.push('Seroma');if(/YARA ENFEKSİY|CERRAHİ ALAN ENFEKSİY|ENFEKSİYON/.test(all))complications.push('Enfeksiyon');if(/DEHİS|EVİSSER/.test(all))complications.push('Dehisens');
     const defect=(note.match(/(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*cm/i)||[]).slice(1).join(' x ');
-    const location=(note.match(/\b(epigastrik|umbilikal|umblikal|göbek|suprapubik|subkostal|median|paramedian|parastomal|lomber)\b/i)||[])[1]||'';
-    const stayDates=(details.stay||[]).flatMap(x=>norm(x).match(/\d{2}\.\d{2}\.\d{4}(?:\s+\d{2}:\d{2})?/g)||[]).map(x=>({text:x,date:parseDate(x)})).filter(x=>x.date);
-    const before=stayDates.filter(x=>surgeryDate&&x.date<=surgeryDate).sort((a,b)=>b.date-a.date)[0];
-    const after=stayDates.filter(x=>surgeryDate&&x.date>=surgeryDate).sort((a,b)=>a.date-b.date)[0];
-    const stayDays=before&&after?Math.max(1,Math.ceil((after.date-before.date)/86400000)):'';
-    return {surgeryDate,previousHernia,laterHerniaOps,laterAdmissions,previousAbdominal,cancers,materialRows,prolenCount,sex,age,duration,diagnoses,all,note,complications,defect,location,stayDays};
+    const location=classifyEhsLocation(details.imaging,note);
+    const dischargeDates=(details.dischargeFields||[]).map(parseDateTime).filter(x=>x&&surgeryDate&&x>=surgeryDate).sort((a,b)=>a-b);
+    const discharge=dischargeDates[0]||null;
+    const stayDays=discharge&&surgeryDate?Math.max(0,Math.round(((discharge-surgeryDate)/86400000)*10)/10):'';
+    return {surgeryDate,previousHernia,laterHerniaOps,laterDebridement,laterAdmissions,previousAbdominal,cancers,materialRows,prolenCount,sex,age,duration,diagnoses,all,note,complications,defect,location,stayDays};
   }
   function applyResult(patient, details){
     const row=state.rows[patient.rowIndex], d=derive(patient,details);
@@ -322,7 +351,9 @@
     if(/\bINLAY\b|\bİNLAY\b/i.test(d.note)){setIfFound(row,'inlay',1);if(hasAbd)setIfFound(row,'inlayAbd',1);}
     if(d.complications.length)setIfFound(row,'sso',d.complications.join(', '));
     if(/NEKROZ/.test(d.all))setIfFound(row,'necrosis',1); if(/\bVAC\b/.test(d.all))setIfFound(row,'vac',1); if(/SEROMA/.test(d.all))setIfFound(row,'seroma',1);
+    if(d.laterDebridement.length){setIfFound(row,'necrosis',1);setIfFound(row,'vac',1);}
     if(/REVİZYON|REVIZYON|REAKSPLORASYON/.test(d.all))setIfFound(row,'revision',1);
+    if(d.laterHerniaOps.length)setIfFound(row,'revision',1);
     if(/\bI10(?:\.|-)/.test(d.diagnoses))setIfFound(row,'ht',1); if(/\bE1[01](?:\.|-)/.test(d.diagnoses))setIfFound(row,'dm',1);
     if(/\bJ4[34](?:\.|-)/.test(d.diagnoses))setIfFound(row,'copd',1); if(/\bI50(?:\.|-)/.test(d.diagnoses))setIfFound(row,'hf',1);
     if(/\bE0[0-7](?:\.|-)|GUATR/.test(d.diagnoses))setIfFound(row,'goiter',1);
@@ -364,10 +395,13 @@
     await readTab('Ameliyat Bilgileri',80);
     const materials=await readTab('İlaç Sarf',300);
     await readTab('Hizmet Listesi',80);
+    const imaging=await readRadiology();
+    await readTab('Hizmet Listesi',60);
     const stay=await readTab('Yatış Özet',220);
+    const dischargeFields=uniq([...fieldValues('Taburcu Tarihi'),...fieldValues('Çıkış Tarihi'),...fieldValues('Bitiş Tarihi')]);
     await readTab('Hizmet Listesi',60);
     const history=patient.tc?await readHistory(patient.tc):[];
-    return{fields,surgeries,selectedOperation,note,materials,history,stay};
+    return{fields,surgeries,selectedOperation,note,materials,history,stay,imaging,dischargeFields};
   }
   async function run(){
     if(!state.patients.length||state.running)return;
