@@ -93,7 +93,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.5.0</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.5.1</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -487,7 +487,7 @@
     const fields={
       operationNo:patient.operationNo,
       tc:deepValue(combinedRoot,['kimlikNo','tcKimlikNo','tckn']),
-      name:deepValue(combinedRoot,['adiSoyadi','adSoyad','hastaAdiSoyadi'])||patient.name,
+      name:patient.name||deepValue(combinedRoot,['hastaAdiSoyadi','hastaAdSoyad']),
       phone:deepValue(combinedRoot,['telefonGsm','cepTelefonu','cepTelefon','telefonNo','telefon','gsm','mobilTelefon']),
       ageSex,
       asa:deepValue(detailRoot,['asa','asaSkoru','asaEuroScore']),
@@ -555,7 +555,7 @@
     return{fields,surgeries,selectedOperation,note,materials,history,stay,imaging,dischargeFields};
   }
   async function processPatient(p){
-    try{const details=await scanPatient(p);const row=state.rows[p.rowIndex];p.tc=details.fields.tc||p.tc;p.name=details.fields.name||p.name;setIfFound(row,'name',p.name);setIfFound(row,'tc',p.tc);const derived=applyResult(p,details);state.results[p.tc||`${p.operationNo}|${p.surgeryDate}`]={status:'Tamamlandı',details,derived:{prolenCount:derived.prolenCount,readmissions:derived.laterAdmissions.length}};log(`${p.name}: tamamlandı, Prolen mesh ${derived.prolenCount}, yeniden yatış ${derived.laterAdmissions.length}`);}
+    try{const details=await scanPatient(p);const row=state.rows[p.rowIndex];p.tc=details.fields.tc||p.tc;p.name=p.name||details.fields.name;setIfFound(row,'name',p.name);setIfFound(row,'tc',p.tc);const derived=applyResult(p,details);state.results[p.tc||`${p.operationNo}|${p.surgeryDate}`]={status:'Tamamlandı',details,derived:{prolenCount:derived.prolenCount,readmissions:derived.laterAdmissions.length}};log(`${p.name}: tamamlandı, Prolen mesh ${derived.prolenCount}, yeniden yatış ${derived.laterAdmissions.length}`);}
     catch(error){state.errors++;state.results[p.tc||`${p.operationNo}|${p.surgeryDate}`]={status:'Hata',error:String(error.message||error)};const r=state.rows[p.rowIndex];r[state.headerMap.get('FONET TARAMA DURUMU')]=`Hata: ${error.message||error}`;log(`${p.name||p.operationNo}: ${error.message||error}`,true);}
     state.current++;persist();updateStatus();
   }
