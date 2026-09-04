@@ -17,6 +17,19 @@
     }).filter(x=>/işlem no|islem no|ameliyat saati|an\.baş|an\.bas|post-op|prot\.no/i.test(`${x.label} ${x.name}`));
     console.log('FONET_FORM_DIAG',JSON.stringify({forms,fields}));
   } catch {}
+  try {
+    if(window.Ext?.Ajax&&!window.__fonetExcelAjaxDiag){
+      window.__fonetExcelAjaxDiag=true;
+      Ext.Ajax.on('beforerequest',(conn,options)=>{
+        const url=String(options?.url||'');
+        if(/Ameliyat|HastaBirimSevk|HastaHizmet/i.test(url))console.log('FONET_AJAX_DIAG',JSON.stringify({phase:'request',url,method:options?.method||'',params:options?.params||null,jsonData:options?.jsonData||null}));
+      });
+      Ext.Ajax.on('requestcomplete',(conn,response,options)=>{
+        const url=String(options?.url||'');
+        if(/Ameliyat|HastaBirimSevk|HastaHizmet/i.test(url))console.log('FONET_AJAX_DIAG',JSON.stringify({phase:'response',url,status:response?.status||0,body:String(response?.responseText||'').slice(0,1200)}));
+      });
+    }
+  } catch {}
   if (window.top !== window || window.__fonetExcelHastaTarayici) return;
   window.__fonetExcelHastaTarayici = true;
 
@@ -110,7 +123,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.3.3</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.3.4</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -212,7 +225,7 @@
   function extRecordData(record,index){
     const data=record?.data||{},entries=Object.entries(data),values=entries.map(x=>norm(x[1])).filter(Boolean),line=values.join(' | ');
     const nk=k=>String(k).replace(/[^a-zA-Z0-9çğıöşüÇĞİÖŞÜ]/g,'').toLocaleLowerCase('tr-TR');
-    const exact=(keys)=>norm(entries.find(([k])=>keys.includes(nk(k)))?.[1]);
+    const exact=(keys)=>{for(const wanted of keys){const hit=entries.find(([k])=>nk(k)===wanted);if(hit&&norm(hit[1]))return norm(hit[1]);}return'';};
     const operationNo=exact(['islemno','ameliyatno','protokolno'])||(line.match(/\b\d{6,}\b/g)||[]).at(-1)||'';
     const surgeryDate=exact(['ameliyattarihi','islemtarihi','istemtarihi','tarih','baslamatarihi'])||(line.match(/\d{2}\.\d{2}\.\d{4}(?:\s+\d{2}:\d{2}(?::\d{2})?)?/)||[])[0]||'';
     let name=exact(['adisoyadi','adsoyad','hastaadisoyadi','hastaadsoyad']);
