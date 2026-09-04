@@ -97,7 +97,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.2.3</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.2.4</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -371,7 +371,19 @@
     if(patient.mode==='fonet-list'){
       found=openListRows();
       selected=found.find(r=>norm(r.innerText).includes(patient.operationNo))||chooseOperation(found.filter(r=>upper(r.innerText).includes(upper(patient.name))),patient.surgeryDate);
-      if(selected)click(selected,true);else if(!selectExtOperation(patient.operationNo,patient.listIndex))throw new Error('Açık listedeki ameliyat satırı yeniden bulunamadı');
+      let activated=false;
+      for(let attempt=0;attempt<3;attempt++){
+        if(selected){click(selected,true);activated=true;}
+        activated=selectExtOperation(patient.operationNo,patient.listIndex)||activated;
+        if(!activated)break;
+        const ok=await waitFor(()=>{
+          const shownName=upper(currentPatientName()),shownOperation=norm(fieldValue('İşlem No :'));
+          return shownName===upper(patient.name)&&(!patient.operationNo||shownOperation===norm(patient.operationNo));
+        },2800);
+        if(ok){activated='loaded';break;}
+        await sleep(120);
+      }
+      if(activated!=='loaded')throw new Error(activated?'Hasta bilgileri 3 denemede yüklenmedi':'Açık listedeki ameliyat satırı yeniden bulunamadı');
     }else{
       const controls=searchControls(); if(!controls)throw new Error('Ameliyat arama ekranı bulunamadı');
       click(controls.clear); await sleep(180); setValue(controls.tcInput,patient.tc); click(controls.query);
@@ -379,12 +391,11 @@
       if(!found||!found.length)throw new Error('TC için ameliyat kaydı bulunamadı');
       selected=chooseOperation(found,patient.surgeryDate); click(selected);
     }
-    await sleep(350);
-    const loaded=await waitFor(()=>{
-      const shownName=upper(currentPatientName()),shownOperation=norm(fieldValue('İşlem No :'));
-      return shownName===upper(patient.name)&&(!patient.operationNo||shownOperation===norm(patient.operationNo));
-    },10000);
-    if(!loaded)throw new Error('Hasta bilgileri yüklenmedi');
+    if(patient.mode!=='fonet-list'){
+      await sleep(350);
+      const loaded=await waitFor(()=>upper(currentPatientName())===upper(patient.name),10000);
+      if(!loaded)throw new Error('Hasta bilgileri yüklenmedi');
+    }
     patient.name=currentPatientName()||patient.name;patient.tc=currentTc()||patient.tc;
     if(patient.mode==='fonet-list'){
       const row=state.rows[patient.rowIndex];setIfFound(row,'name',patient.name);setIfFound(row,'tc',patient.tc);setIfFound(row,'operationNo',patient.operationNo);setIfFound(row,'surgeryDate',patient.surgeryDate);
