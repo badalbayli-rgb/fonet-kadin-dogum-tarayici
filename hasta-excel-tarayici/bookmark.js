@@ -1,5 +1,5 @@
 (() => {
-  const version = '1.1.1';
+  const version = '1.1.2';
   const base = 'https://badalbayli-rgb.github.io/fonet-kadin-dogum-tarayici/hasta-excel-tarayici/';
   const load = (url, done) => {
     const script = document.createElement('script');

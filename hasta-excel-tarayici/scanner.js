@@ -246,9 +246,9 @@
     click(button);
     const win=await waitFor(()=>elements('.x-window').find(w=>visible(w)&&/Hasta Geçmiş/i.test(norm(w.innerText).slice(0,200))),10000);
     if(!win)throw new Error('Hasta geçmişi açılmadı');
-    await sleep(700);
+    await sleep(250);
     const rows=[...win.querySelectorAll('tr[data-recordindex],[role="row"]')].filter(visible).map(x=>norm(x.innerText)).filter(x=>x.includes(tc)||/\d{2}\.\d{2}\.\d{4}/.test(x));
-    closeWindow(win); await sleep(250); return uniq(rows);
+    closeWindow(win); await sleep(80); return uniq(rows);
   }
   function quantityFromMaterialRow(text){
     const cells=norm(text).split(/\s+/); const nums=cells.map(x=>Number(String(x).replace(',','.'))).filter(x=>Number.isFinite(x)&&x>0&&x<=10&&Number.isInteger(x));
@@ -325,10 +325,10 @@
     const fields={operationNo:fieldValue('İşlem No :')||patient.operationNo,phone:fieldValue('Telefon')||fieldValue('Cep Telefonu'),ageSex:fieldValue('Yaş / Cinsiyet / D.Tar:'),asa:fieldValue('Asa/Euro Score:'),surgeryTimes:`${fieldValue('Ameliyat Saati')} ${fieldValue('Post-Op Saati')}`};
     const surgeries=found.map(x=>norm(x.innerText));
     const selectedOperation=selected?norm(selected.innerText):`${patient.surgeryDate} ${patient.name} ${patient.operationNo}`;
-    const note=await readTab('Ameliyat Notları',650);
-    await readTab('Ameliyat Bilgileri',250);
-    const materials=await readTab('İlaç Sarf',650);
-    await readTab('Hizmet Listesi',250);
+    const note=await readTab('Ameliyat Notları',250);
+    await readTab('Ameliyat Bilgileri',80);
+    const materials=await readTab('İlaç Sarf',300);
+    await readTab('Hizmet Listesi',80);
     const history=patient.tc?await readHistory(patient.tc):[];
     return{fields,surgeries,selectedOperation,note,materials,history};
   }
@@ -340,7 +340,7 @@
       const p=state.patients[i];
       try{const details=await scanPatient(p);const derived=applyResult(p,details);state.results[p.tc||`${p.operationNo}|${p.surgeryDate}`]={status:'Tamamlandı',details,derived:{prolenCount:derived.prolenCount,readmissions:derived.laterAdmissions.length}};log(`${p.name}: tamamlandı, Prolen mesh ${derived.prolenCount}, yeniden yatış ${derived.laterAdmissions.length}`);}
       catch(error){state.errors++;state.results[p.tc||`${p.operationNo}|${p.surgeryDate}`]={status:'Hata',error:String(error.message||error)};const r=state.rows[p.rowIndex];r[state.headerMap.get('FONET TARAMA DURUMU')]=`Hata: ${error.message||error}`;log(`${p.name||p.operationNo}: ${error.message||error}`,true);}
-      state.current=i+1;persist();updateStatus();await sleep(220);
+      state.current=i+1;persist();updateStatus();await sleep(60);
     }
     state.running=false;$('#fx-start').disabled=false;$('#fx-pause').disabled=true;$('#fx-stop').disabled=true;$('#fx-export').disabled=false;
     updateStatus(state.stopped?'Tarama durduruldu. Sonuçlar kaydedildi.':'Tarama tamamlandı. Güncellenmiş Excel indirilebilir.');
