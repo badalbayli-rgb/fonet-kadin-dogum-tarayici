@@ -88,7 +88,7 @@
       #fonet-excel-log{margin-top:7px;background:#f3f6f8;max-height:160px;overflow:auto;padding:6px;font-size:11px;border-radius:4px}
       #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="title">FONET Hasta ve Excel Tarayıcı v1.1</div>
+    <div class="title">FONET Hasta ve Excel Tarayıcı v1.1.4</div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
