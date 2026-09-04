@@ -1,35 +1,5 @@
 (() => {
   'use strict';
-  try {
-    const grids=(window.Ext?.ComponentQuery?.query('gridpanel,grid')||[]).map(g=>{let s,p;try{s=g.getStore?.();p=s?.getProxy?.();}catch{}return{id:g.id,title:g.title||'',itemId:g.itemId||'',count:s?.getCount?.()||0,url:p?.url||p?.api?.read||'',extra:p?.extraParams||{},keys:s?.getAt?.(0)?Object.keys(s.getAt(0).data||{}).slice(0,40):[]};});
-    console.log('FONET_GRID_DIAG',JSON.stringify(grids));
-  } catch {}
-  try {
-    const forms=(window.Ext?.ComponentQuery?.query('form')||[]).map(form=>{
-      let basic,record,values={};
-      try{basic=form.getForm?.();record=basic?.getRecord?.()?.data||null;values=basic?.getValues?.()||{};}catch{}
-      const text=JSON.stringify({record,values});
-      return{id:form.id,itemId:form.itemId||'',record,values,interesting:/ameliyat|islemNo|saatBilgisi|protokolNo/i.test(text)};
-    }).filter(x=>x.interesting);
-    const fields=(window.Ext?.ComponentQuery?.query('field')||[]).map(field=>{
-      let value='';try{value=field.getValue?.()??field.getRawValue?.()??field.value??'';}catch{}
-      return{id:field.id,itemId:field.itemId||'',name:field.name||'',label:field.fieldLabel||'',value};
-    }).filter(x=>/işlem no|islem no|ameliyat saati|an\.baş|an\.bas|post-op|prot\.no/i.test(`${x.label} ${x.name}`));
-    console.log('FONET_FORM_DIAG',JSON.stringify({forms,fields}));
-  } catch {}
-  try {
-    if(window.Ext?.Ajax&&!window.__fonetExcelAjaxDiag){
-      window.__fonetExcelAjaxDiag=true;
-      Ext.Ajax.on('beforerequest',(conn,options)=>{
-        const url=String(options?.url||'');
-        if(/Ameliyat|HastaBirimSevk|HastaHizmet/i.test(url))console.log('FONET_AJAX_DIAG',JSON.stringify({phase:'request',url,method:options?.method||'',params:options?.params||null,jsonData:options?.jsonData||null}));
-      });
-      Ext.Ajax.on('requestcomplete',(conn,response,options)=>{
-        const url=String(options?.url||'');
-        if(/Ameliyat|HastaBirimSevk|HastaHizmet/i.test(url))console.log('FONET_AJAX_DIAG',JSON.stringify({phase:'response',url,status:response?.status||0,body:String(response?.responseText||'').slice(0,1200)}));
-      });
-    }
-  } catch {}
   if (window.top !== window || window.__fonetExcelHastaTarayici) return;
   window.__fonetExcelHastaTarayici = true;
 
@@ -123,7 +93,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.3.4</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.4.0</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -324,6 +294,8 @@
     }finally{closeWindow(win);await sleep(80);}
   }
   function quantityFromMaterialRow(text){
+    const labelled=norm(text).match(/Miktar\s*:\s*(\d+(?:[.,]\d+)?)/i);
+    if(labelled)return Number(labelled[1].replace(',','.'))||0;
     const cells=norm(text).split(/\s+/); const nums=cells.map(x=>Number(String(x).replace(',','.'))).filter(x=>Number.isFinite(x)&&x>0&&x<=10&&Number.isInteger(x));
     return nums.length?nums[nums.length-1]:1;
   }
@@ -355,8 +327,8 @@
     const prolenRows=materialRows.filter(x=>/PROLEN|PROLENE/i.test(x));
     const prolenCount=prolenRows.reduce((sum,x)=>sum+quantityFromMaterialRow(x),0);
     const ageSex=details.fields.ageSex||''; const sex=/\((Kadın|Erkek)\)/i.exec(ageSex)?.[1]||''; const age=/^(\d+)/.exec(ageSex)?.[1]||'';
-    const times=(details.fields.surgeryTimes||'').match(/\d{2}:\d{2}/g)||[]; let duration='';
-    if(times.length>=2){const [h1,m1]=times[0].split(':').map(Number),[h2,m2]=times[times.length-1].split(':').map(Number);duration=(h2*60+m2)-(h1*60+m1);if(duration<0)duration+=1440;}
+    const times=(details.fields.surgeryTimes||'').match(/\d{1,2}:\d{2}/g)||[]; let duration='';
+    if(times.length===2){const [h1,m1]=times[0].split(':').map(Number),[h2,m2]=times[1].split(':').map(Number);duration=(h2*60+m2)-(h1*60+m1);if(duration<0)duration+=1440;if(duration<=0||duration>720)duration='';}
     const diagnoses=upper(allHistory);
     const complications=[]; if(/NEKROZ/.test(all))complications.push('Nekroz');if(/SEROMA/.test(all))complications.push('Seroma');if(/YARA ENFEKSİY|CERRAHİ ALAN ENFEKSİY|ENFEKSİYON/.test(all))complications.push('Enfeksiyon');if(/DEHİS|EVİSSER/.test(all))complications.push('Dehisens');
     const defect=(note.match(/(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*cm/i)||[]).slice(1).join(' x ');
@@ -434,6 +406,19 @@
     }
     return'';
   }
+  function surgeryTimePair(detailRoot){
+    const start=deepValue(detailRoot,['ameliyatBaslangicSaati','ameliyatBaslangicSaat','ameliyatBasSaati','ameliyatBaslamaSaati']);
+    const end=deepValue(detailRoot,['ameliyatBitisSaati','ameliyatBitisSaat','ameliyatSonSaati','ameliyatTamamlanmaSaati']);
+    const time=x=>(norm(x).match(/\b\d{1,2}:\d{2}\b/)||[])[0]||'';
+    if(time(start)&&time(end))return`${time(start)} ${time(end)}`;
+    const ordered=Object.entries(flatObject(detailRoot)).filter(([path])=>/saatbilgisi/i.test(path.replace(/[^a-z0-9]/gi,''))).flatMap(([,value])=>norm(value).match(/\b\d{1,2}:\d{2}\b/g)||[]);
+    const unique=uniq(ordered);
+    return unique.length>=2?unique.slice(-2).join(' '):'';
+  }
+  function materialPath(patient){
+    const filter=encodeURIComponent(JSON.stringify([{property:'birimSevk.id',value:Number(patient.birimSevkId)||patient.birimSevkId,filterType:'kriterPanel',type:'Long',operator:'='}]));
+    return`/Stok/StokCikisServisDepoHasta/getHastaCikisKayitList?start=0&limit=2000&page=1&filter=${filter}`;
+  }
   async function settled(path){try{return await apiJson(path);}catch(error){return{__error:String(error.message||error)};}}
   async function operationHistory(patient){
     if(!patient.kimlikId)return[];
@@ -443,41 +428,46 @@
   }
   async function scanPatientBackground(patient){
     if(!patient.ameliyatId||!patient.gelisId||!patient.birimSevkId)throw new Error('Kayıt servis kimlikleri bulunamadı; listeyi yeniden alın');
-    const [notePayload,servicePayload,patientPayload,consultPayload,history]=await Promise.all([
+    const [detailPayload,notePayload,servicePayload,patientPayload,consultPayload,materialPayload,history]=await Promise.all([
+      settled(`/Ameliyat/Ameliyat/getKayit/${encodeURIComponent(patient.birimSevkId)}`),
       settled(`/Ameliyat/Ameliyat/getAmeliyatPersonelList/${encodeURIComponent(patient.ameliyatId)}/-1`),
       settled(`/Tibbi/HastaHizmet/getHizmetList/${encodeURIComponent(patient.birimSevkId)}/${encodeURIComponent(patient.gelisId)}`),
       settled(`/Tibbi/HastaBirimSevk/getSevkUyariInfo/${encodeURIComponent(patient.birimSevkId)}`),
       settled(`/Poliklinik/Poliklinik/getHastaGelisKonsultasyonList/${encodeURIComponent(patient.gelisId)}/1`),
+      settled(materialPath(patient)),
       operationHistory(patient)
     ]);
-    const failed=[notePayload,servicePayload,patientPayload].filter(x=>x?.__error).length;
+    const failed=[detailPayload,notePayload,patientPayload].filter(x=>x?.__error).length;
     if(failed===3)throw new Error('FONET arka plan servisleri yanıt vermedi');
     const noteRows=notePayload.__error?[]:payloadRows(notePayload);
     const serviceRows=servicePayload.__error?[]:payloadRows(servicePayload);
     const consultRows=consultPayload.__error?[]:payloadRows(consultPayload);
+    const materialRecords=materialPayload.__error?[]:payloadRows(materialPayload);
+    const detailRoot=detailPayload.__error?{}:(detailPayload.data||detailPayload);
     const patientRoot=patientPayload.__error?{}:patientPayload;
     const note=noteRows.map(x=>norm(x?.notu||x?.hizmet||objectText(x))).filter(Boolean);
     const services=serviceRows.map(x=>objectText(x));
     const consultations=consultRows.map(x=>objectText(x));
     const patientText=objectText(patientRoot);
-    const gender=deepValue(patientRoot,['cinsiyetAdi','cinsiyet']);
-    const birthDate=deepValue(patientRoot,['dogumTarihi','doğumTarihi']);
+    const combinedRoot={detail:detailRoot,patient:patientRoot};
+    const gender=deepValue(combinedRoot,['cinsiyetAdi','cinsiyet']);
+    const birthDate=deepValue(combinedRoot,['dogumTarihi','doğumTarihi']);
     const birth=parseDateTime(birthDate),calculatedAge=birth?Math.max(0,new Date().getFullYear()-birth.getFullYear()-(new Date()<new Date(new Date().getFullYear(),birth.getMonth(),birth.getDate())?1:0)):'';
-    const ageSex=deepValue(patientRoot,['yasCinsiyetDogumTarihi','yasCinsiyet'])||(gender?`${calculatedAge||''}Yıl (${gender}) / ${birthDate}`:'')||patientText.match(/\d+\s*(?:Yıl|Yaş)[^|]{0,40}\((?:Kadın|Erkek)\)/i)?.[0]||'';
+    const ageSex=deepValue(combinedRoot,['yasCinsiyetDogumTarihi','yasCinsiyet','yas'])||(gender?`${calculatedAge||''}Yıl (${gender}) / ${birthDate}`:'')||patientText.match(/\d+\s*(?:Yıl|Yaş)[^|]{0,40}\((?:Kadın|Erkek)\)/i)?.[0]||'';
     const fields={
       operationNo:patient.operationNo,
-      tc:deepValue(patientRoot,['kimlikNo','tcKimlikNo','tckn']),
-      name:deepValue(patientRoot,['adiSoyadi','adSoyad','hastaAdiSoyadi'])||patient.name,
-      phone:deepValue(patientRoot,['cepTelefonu','cepTelefon','telefonNo','telefon','gsm','mobilTelefon']),
+      tc:deepValue(combinedRoot,['kimlikNo','tcKimlikNo','tckn']),
+      name:deepValue(combinedRoot,['adiSoyadi','adSoyad','hastaAdiSoyadi'])||patient.name,
+      phone:deepValue(combinedRoot,['telefonGsm','cepTelefonu','cepTelefon','telefonNo','telefon','gsm','mobilTelefon']),
       ageSex,
-      asa:deepValue(patient.raw||{},['asa','asaSkoru','asaEuroScore']),
-      surgeryTimes:objectText(patient.raw||{})
+      asa:deepValue(detailRoot,['asa','asaSkoru','asaEuroScore']),
+      surgeryTimes:surgeryTimePair(detailRoot)
     };
     const dischargeFields=Object.entries(flatObject(patientRoot)).filter(([k])=>/taburcu|cikis|bitiş|bitis/i.test(k)).map(([,v])=>norm(v));
     return{
       fields,selectedOperation:objectText(patient.raw||{})||`${patient.surgeryDate} ${patient.name}`,
       surgeries:history.length?history:[objectText(patient.raw||{})],note,
-      materials:services.filter(x=>/MESH|MEŞ|YAMA|PROLEN|PROLENE/i.test(x)),
+      materials:materialRecords.map(x=>`${norm(x?.stokAdi||x?.malzemeAdi||x?.adi)} | Miktar: ${norm(x?.miktar)} ${norm(x?.birim)} | ${norm(x?.tarih)}`).filter(x=>/MESH|MEŞ|YAMA|PROLEN|PROLENE/i.test(x)),
       history:uniq([...history,...consultations]),stay:[patientText],imaging:services.filter(x=>/RADYOLOJ|TOMOGRAF|\bBT\b|USG|MRG|ABDOM|BATIN/i.test(x)),dischargeFields
     };
   }
