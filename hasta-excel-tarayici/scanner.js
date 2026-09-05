@@ -94,7 +94,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.8.0</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.9.0</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -305,18 +305,22 @@
     return nums.length?nums[nums.length-1]:1;
   }
   function classifyEhsLocation(imagingText,noteText){
-    const source=upper(`${(imagingText||[]).join(' | ')} | ${noteText||''}`);
-    const distance=(rx)=>{const m=source.match(rx);return m?Number(m[1].replace(',','.')):null;};
-    const aboveUmb=distance(/G[ÖO]BE(?:K|Ğ[İI])(?:N)?\s+(\d+(?:[.,]\d+)?)\s*CM\s+(?:ÜST|YUKARI)/);
-    const belowUmb=distance(/G[ÖO]BE(?:K|Ğ[İI])(?:N)?\s+(\d+(?:[.,]\d+)?)\s*CM\s+(?:ALT|AŞAĞI)/);
-    const belowXiphoid=distance(/(?:KSİFOİD|KSIFOID|XİFOİD|XIPHOID)(?:İN)?\s+(\d+(?:[.,]\d+)?)\s*CM\s+ALT/);
-    const abovePubis=distance(/PUBİ[SK](?:İN)?\s+(\d+(?:[.,]\d+)?)\s*CM\s+(?:ÜST|YUKARI)/);
-    if(/SUBKSİFOİD|SUBKSIFOID|SUBXİPHOID|SUBXIPHOID/.test(source)||(belowXiphoid!==null&&belowXiphoid<=3))return'M1 (Subksifoid)';
-    if(/SUPRAPUBİK|SUPRAPUBIK/.test(source)||(abovePubis!==null&&abovePubis<=3))return'M5 (Suprapubik)';
-    if(/İNFRAUMBİLİKAL|INFRAUMBILIKAL|ALT ORTA HAT/.test(source)||(belowUmb!==null&&belowUmb>3)||(abovePubis!==null&&abovePubis>3))return'M4 (İnfraumbilikal)';
-    if(/EPİGASTRİK|EPIGASTRIK|ÜST ORTA HAT|SUPRAUMBİLİKAL|SUPRAUMBILIKAL/.test(source)||(aboveUmb!==null&&aboveUmb>3)||(belowXiphoid!==null&&belowXiphoid>3))return'M2 (Epigastrik)';
-    if(/PERİUMBİLİKAL|PERIUMBILIKAL|PARAUMBİLİKAL|PARAUMBILIKAL|UMBİLİKAL|UMBILIKAL|UMBLİKAL|G[ÖO]BEK ÇEVRES/.test(source)||(aboveUmb!==null&&aboveUmb<=3)||(belowUmb!==null&&belowUmb<=3))return'M3 (Umbilikal)';
-    return'';
+    const fold=text=>upper(text).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/İ/g,'I');
+    const sentences=fold([...(imagingText||[]),noteText||''].join(' | ')).split(/[|\n]|(?<=[.!?])\s+/).filter(s=>/HERNI|DEFEKT|FASYA|FITIK/.test(s)&&!/HERNI\s+(?:YOK|IZLENMEDI|SAPTANMADI)/.test(s));
+    const codes=new Set();
+    for(const s of sentences){
+      if(/SUBKSIFOID|SUBXIFOID|SUBXIPHOID/.test(s))codes.add('M1');
+      if(/EPIGASTR|SUPRAUMB|UST ORTA HAT/.test(s))codes.add('M2');
+      if(/(?:^|[^A-Z])(?:PERI|PARA)?UMB(?:I)?LIKAL|GOBEK CEVRE|GOBEK HIZA/.test(s))codes.add('M3');
+      if(/INFRAUMB|ALT ORTA HAT/.test(s))codes.add('M4');
+      if(/SUPRAPUB/.test(s))codes.add('M5');
+      const above=s.match(/GOBE(?:K|GI)(?:N)?\s+(\d+(?:[.,]\d+)?)\s*CM\s+(?:UST|YUKARI)/);
+      const below=s.match(/GOBE(?:K|GI)(?:N)?\s+(\d+(?:[.,]\d+)?)\s*CM\s+(?:ALT|ASAGI)/);
+      if(above)codes.add(Number(above[1].replace(',','.'))<=3?'M3':'M2');
+      if(below)codes.add(Number(below[1].replace(',','.'))<=3?'M3':'M4');
+    }
+    if(codes.size)return [...codes].sort().join(', ');
+    return '';
   }
   function derive(patient, details){
     const surgeryDate=parseDateTime(patient.surgeryDate)||parseDateTime(details.selectedOperation);
@@ -327,8 +331,11 @@
     const laterDebridement=opRows.filter(x=>surgeryDate&&x.date>surgeryDate&&/YARA[^|]{0,40}DEBRİDMAN|YARA[^|]{0,40}DEBRIDMAN|DEBRİDMAN|DEBRIDMAN/i.test(x.text));
     const laterAdmissions=details.history.filter(x=>{const d=parseDate(x);return d&&surgeryDate&&dateDiffDays(surgeryDate,d)>2&&/\bYATIŞ\b/i.test(x);});
     const previousAbdominal=opRows.filter(x=>surgeryDate&&x.date<surgeryDate&&/ABDOM|LAPAROT|LAPAROSK|APPEN|KOLESİST|KOLEKT|REZEKS|GASTREK|HERNİ|FITIK|SEZARYEN|HİSTEREKT|OOFOREKT|SALPEN|KOLON|REKT|İLEOST|KOLOST|PANKREAT|SPLENEKT|BARSAK|BAĞIRSAK|UMBİLİK|MİDE|BYPASS|SLEEVE/i.test(x.text));
-    const malignancyPattern=/\bC\d{2}(?:\.\d+)?\b|\bD0[0-9](?:\.\d+)?\b|MALİGN|MALIGN|KANSER|KARSİNOM|KARSINOM|ADENOKARSİNOM|ADENOKARSINOM|METASTA|TÜM[ÖO]R|NEOPLAZ|LOW ANTERIOR REZEKSİYON|LOW ANTERİOR REZEKSİYON|ABDOMİNOPERİNEAL REZEKSİYON|MILES OPERASYONU/i;
-    const cancers=uniq(details.history.flatMap(x=>norm(x).split(/\s+\|\s+/)).filter(x=>malignancyPattern.test(x))).slice(0,12);
+    const malignancyPattern=/\bC\d{2}(?:\.\d+)?\b|MALIGN|KANSER|KARSINOM|ADENOKARSINOM|METASTA|610410|REKTUM TUMORUNDE LOW ANTERIOR REZEKSIYON/;
+    const cancers=uniq([...details.history,...details.note,...(details.surgeries||[])].filter(x=>{
+      const folded=upper(x).normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      return malignancyPattern.test(folded)&&!/MALIGN(?:ITE)?\s+(?:YOK|IZLENMEDI|SAPTANMADI|NEGATIF)|MALIGNITE ACISINDAN SUPHE/.test(folded);
+    }));
     const herniaOpRows=opRows.filter(x=>/603801|\bK43(?:\.|-)|İNSİZYONEL HERNİ|INSIZYONEL HERNI|VENTRAL HERNİ|VENTRAL HERNI/i.test(x.text));
     const herniaOperationDates=uniq([
       ...(surgeryDate?[dateText(surgeryDate)]:[]),
@@ -346,8 +353,10 @@
     const complications=[]; if(/NEKROZ/.test(all))complications.push('Nekroz');if(/SEROMA/.test(all))complications.push('Seroma');if(/YARA ENFEKSİY|CERRAHİ ALAN ENFEKSİY|ENFEKSİYON/.test(all))complications.push('Enfeksiyon');if(/DEHİS|EVİSSER/.test(all))complications.push('Dehisens');
     const imagingAndNote=`${(details.imaging||[]).join(' | ')} | ${note}`;
     const focusedDefect=imagingAndNote.match(/(?:DEF[EİI]KT|HERNİ|HERNI|HERNIA|HERNİ KESESİ|HERNI KESESI|HERNIA SAC|FASYA)[^|.]{0,180}?(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*(?:cm|mm)/i)||imagingAndNote.match(/(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*(?:cm|mm)[^|.]{0,140}?(?:DEF[EİI]KT|HERNİ|HERNI|HERNIA|HERNİ KESESİ|HERNI KESESI|HERNIA SAC|FASYA)/i);
-    const defectUnit=focusedDefect?.[0]?.match(/\b(cm|mm)\b/i)?.[1]?.toLowerCase()||'';
-    const defect=focusedDefect?`${focusedDefect[1]} x ${focusedDefect[2]}${defectUnit?` ${defectUnit}`:''}`:'';
+    const defectUnit=focusedDefect?.[0]?.match(/(cm|mm)\b/i)?.[1]?.toLowerCase()||'';
+    const sacOnly=focusedDefect&&/HERN[İI]\s+KESE|HERNIA SAC/i.test(focusedDefect[0])&&!/DEFEKT|FASYA/i.test(focusedDefect[0]);
+    const reportMeasurements=extractHerniaMeasurements(details.imaging||[]);
+    const defect=reportMeasurements.length?reportMeasurements.join('; '):focusedDefect?`${focusedDefect[1]} x ${focusedDefect[2]}${defectUnit?` ${defectUnit}`:''}${sacOnly?' (herni kesesi; defekt ölçüsü belirtilmemiş)':''}`:'';
     const location=classifyEhsLocation(details.imaging,note);
     const dischargeDates=(details.dischargeFields||[]).map(parseDateTime).filter(x=>x&&surgeryDate&&x>=surgeryDate).sort((a,b)=>a-b);
     const discharge=dischargeDates[0]||null;
@@ -374,7 +383,7 @@
     setIfFound(row,'followRecurrence',d.laterHerniaOps.length?`Evet – ${d.laterHerniaOps.map(x=>`${dateText(x.date)} ${norm(x.text)}`).join('; ')}`:'Hayır');
     if(d.previousAbdominal.length)setIfFound(row,'preop',d.previousAbdominal.map(x=>`${dateText(x.date)} ${norm(x.text)}`).join('; '));
     setIfFound(row,'readmission',d.laterAdmissions.length?d.laterAdmissions.map(x=>norm(x)).join('; '):'YOK');
-    if(d.cancers.length){setIfFound(row,'malign',`1 – ${d.cancers.join('; ')}`);setIfFound(row,'benign',0);}else{setIfFound(row,'malign',0);setIfFound(row,'benign',1);}
+    if(d.cancers.length){setIfFound(row,'malign',1);setIfFound(row,'benign',0);row[state.headerMap.get('MALİGNİTE KAYNAĞI')]=d.cancers.join('; ');}
     if(d.meshCount>=2){setIfFound(row,'onlay',1);setIfFound(row,'inlay',0);}
     else if(d.meshCount===1){setIfFound(row,'inlay',1);setIfFound(row,'onlay',0);}
     const hasAbd=/ABDOMİNOPLAST|PANNİKÜLEKT/i.test(d.note);
@@ -400,6 +409,12 @@
     row[state.headerMap.get('PROLEN MESH ADEDİ')] = d.prolenCount||0;
     row[state.headerMap.get('MALZEME KAYDI')] = d.materialRows.length?uniq(d.materialRows).join('; '):'FONET sarf kaydında mesh/yama bulunmadı';
     row[state.headerMap.get('FONET TARAMA DURUMU')] = 'Tamamlandı';
+    if(details.radiologyAudit){
+      const a=details.radiologyAudit;
+      row[state.headerMap.get('RADYOLOJİ OKUMA')]=`${a.read}/${a.total} rapor okundu`;
+      row[state.headerMap.get('RADYOLOJİ KAYNAKLARI')]=details.imaging.join('\n').slice(0,32000);
+      row[state.headerMap.get('FONET TARAMA DURUMU')]=a.failures.length?`Eksik: ${a.failures.length} radyoloji raporu okunamadı`:'Tamamlandı';
+    }
     return d;
   }
 
@@ -577,7 +592,7 @@
       Promise.all(materialIds.map(id=>settled(materialPath(id)))),
       operationHistory(patient),
       patientHistory(patient),
-      radiologyHistory(patient)
+      Promise.resolve([]) // Raporlar aşağıda aktif hastanın Tüm Gelişler ekranından okunur.
     ]);
     const failed=[detailPayload,notePayload,patientPayload].filter(x=>x?.__error).length;
     if(failed===3)throw new Error('FONET arka plan servisleri yanıt vermedi');
@@ -618,8 +633,124 @@
       history:uniq([...history,...visitHistory,...consultations,...services]),stay:[patientText],imaging:uniq([...radiology,...services.filter(x=>/RADYOLOJ|TOMOGRAF|\bBT\b|USG|MRG|ABDOM|BATIN/i.test(x))]),dischargeFields
     };
   }
+  function uiComponents(selector){
+    return allDocs().flatMap(doc=>{try{return doc.defaultView.Ext?.ComponentQuery.query(selector)||[];}catch{return[];}});
+  }
+  function extractHerniaMeasurements(reports){
+    const found=[];
+    for(const report of reports){
+      const text=cleanText(report);
+      for(const sentence of text.split(/\||(?<=[.!?])\s+/)){
+        if(!/HERN[İI]|DEFEKT|FASYA|FITIK/i.test(sentence))continue;
+        for(const m of sentence.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)(?:\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?))?\s*(cm|mm)/gi)){
+          const sac=/HERN[İI]\s+KESE|HERNIA SAC/i.test(sentence)&&!/DEFEKT|FASYA/i.test(sentence);
+          const size=[m[1],m[2],m[3]].filter(Boolean).join(' x ')+' '+m[4].toLowerCase();
+          found.push(size+(sac?' (herni kesesi; defekt ölçüsü belirtilmemiş)':'')+' — '+sentence.trim());
+        }
+      }
+    }
+    return uniq(found);
+  }
+  function uiShown(component){return component?.el?.dom&&visible(component.el.dom);}
+  function radiologyRoot(){
+    const grid=uiComponents('gridpanel').find(g=>uiShown(g)&&/İstem Tarihi/.test(g.el.dom.innerText)&&/Rapor Türü/.test(g.el.dom.innerText));
+    if(!grid)return null;
+    let root=grid;
+    while(root&&!/Rapor Sonuç Bilgileri/.test(root.el?.dom?.innerText||''))root=root.ownerCt;
+    return root?{grid,root}:null;
+  }
+  async function uiIdle(){
+    await sleep(250);
+    const ok=await waitFor(()=>!allDocs().some(doc=>doc.defaultView.Ext?.Ajax?.isLoading?.())&&!elements('.x-mask-msg').some(visible),20000,150);
+    if(!ok)throw new Error('FONET yanıtı beklenirken süre doldu');
+    await sleep(150);
+  }
+  function activateGridRecord(grid,record){
+    const view=grid.getView(),index=grid.getStore().indexOf(record);
+    grid.getSelectionModel().select(record);
+    const node=view.getNode(record);
+    if(node)click(node);else view.fireEvent('itemclick',view,record,null,index,{});
+  }
+  function reportText(root){
+    const editors=root.query?.('htmleditor')||[];
+    const values=editors.filter(uiShown).map(e=>cleanText(e.getValue?.()||''));
+    for(const frame of root.el.dom.querySelectorAll('iframe')){
+      try{if(visible(frame))values.push(cleanText(frame.contentDocument?.body?.innerText));}catch{}
+    }
+    return uniq(values).filter(text=>text.length>15).join(' | ');
+  }
+  function reportSignature(root){
+    return JSON.stringify((root.query?.('htmleditor')||[]).map(e=>cleanText(e.getValue?.()||'')));
+  }
+  async function supplementFromPatientScreen(patient,details){
+    const source=extListSource();
+    const record=source?.store.getRange().find(r=>norm(r.data.id)===norm(patient.ameliyatId));
+    if(!record)throw new Error('Ameliyat kimliği açık listede doğrulanamadı');
+    const node=source.grid.getView().getNode(record);
+    if(!node)throw new Error('Ameliyat satırı ekranda yüklenemedi');
+    click(node,true);await uiIdle();
+    const loaded=await waitFor(()=>upper(currentPatientName())===upper(patient.name)&&norm(fieldValue('İşlem No :'))===norm(patient.operationNo),10000);
+    if(!loaded)throw new Error('Hasta adı ve işlem numarası eşleşmedi');
+    const tc=fieldValue('Kimlik No:');
+    if(patient.tc&&norm(patient.tc)!==norm(tc))throw new Error('TC eşleşmedi');
+    details.fields.tc=tc;
+    const ageSex=fieldValue('Yaş / Cinsiyet / D.Tar:');
+    details.fields.ageSex=ageSex;
+    details.fields.gender=/\(Kadın\)/i.test(ageSex)?'Kadın':/\(Erkek\)/i.test(ageSex)?'Erkek':'';
+    if(!details.fields.gender)throw new Error('Aktif hastanın cinsiyet alanı okunamadı; kayıt doğrulanamadı');
+    const serviceButton=exactButton('Hizmet Listesi');if(serviceButton){click(serviceButton);await uiIdle();}
+    const serviceGrid=uiComponents('gridpanel').find(g=>uiShown(g)&&/Makro/.test(g.el.dom.innerText)&&/Miktar/.test(g.el.dom.innerText)&&g!==source.grid);
+    if(serviceGrid)details.history=uniq([...details.history,...serviceGrid.getStore().getRange().map(r=>objectText(r.data))]);
+    const button=exactButton('Radyoloji');if(!button)throw new Error('Radyoloji sekmesi bulunamadı');
+    click(button);await uiIdle();
+    const ctx=radiologyRoot();if(!ctx)throw new Error('Radyoloji sonuç tablosu bulunamadı');
+    const combo=(ctx.root.query('combobox')||[]).find(c=>/Bu Geliş|Tüm Gelişler|Bu Birim/.test(c.getRawValue?.()||''));
+    if(!combo)throw new Error('Tüm Gelişler seçicisi bulunamadı');
+    const option=combo.getStore().getRange().find(r=>Object.values(r.data).some(v=>norm(v)==='Tüm Gelişler'));
+    if(!option)throw new Error('Tüm Gelişler seçeneği yüklenemedi');
+    combo.setValue(option.get(combo.valueField));combo.fireEvent('select',combo,[option]);await uiIdle();
+    if(norm(combo.getRawValue())!=='Tüm Gelişler')throw new Error('Tüm Gelişler seçilemedi');
+    const store=ctx.grid.getStore();
+    const total=store.getTotalCount?.()||store.getCount();
+    if(total>store.getCount()){
+      await new Promise((resolve,reject)=>{
+        const timer=setTimeout(()=>reject(new Error('Radyoloji sayfaları zaman aşımı')),20000);
+        store.load({params:{start:0,limit:total,page:1},callback:(r,o,ok)=>{clearTimeout(timer);ok?resolve():reject(new Error('Radyoloji sayfaları yüklenemedi'));}});
+      });
+    }
+    if(store.getCount()<total)throw new Error(`Radyoloji listesi eksik: ${store.getCount()}/${total}`);
+    const records=store.getRange(),reports=[],failures=[];
+    for(let index=0;index<records.length;index++){
+      if(state.stopped)throw new Error('Tarama durduruldu');
+      while(state.paused&&!state.stopped)await sleep(250);
+      log(`${patient.name}: radyoloji ${index+1}/${records.length}`);
+      try{
+        const before=reportSignature(ctx.root);
+        const alreadySelected=ctx.grid.getSelectionModel().getSelection().includes(records[index]);
+        activateGridRecord(ctx.grid,records[index]);await uiIdle();
+        const tabs=ctx.root.query('tab')||[];
+        const texts=[];
+        for(const label of ['Sonuç Öneriler','Bulgular']){
+          const t=tabs.find(t=>norm(t.text)===label);
+          if(t?.el?.dom){click(t.el.dom);await uiIdle();const value=reportText(ctx.root);if(value)texts.push(value);}
+        }
+        const finalText=reportText(ctx.root);
+        const text=uniq(texts.length?texts:[finalText]).join(' | ');
+        if(!text)throw new Error('Rapor metni boş');
+        if(!alreadySelected&&reportSignature(ctx.root)===before)throw new Error('Rapor değişimi doğrulanamadı; önceki rapor kopyalanmadı');
+        reports.push({source:objectText(records[index].data),text});
+      }catch(error){failures.push(`${index+1}: ${error.message}`);}
+    }
+    details.imaging=reports.map(r=>`${r.source} | ${r.text}`);
+    details.radiologyAudit={total:records.length,read:reports.length,failures};
+    details.fields.radiologyEvidence=reports;
+  }
   async function scanPatient(patient){
-    if(patient.mode==='fonet-list')return scanPatientBackground(patient);
+    if(patient.mode==='fonet-list'){
+      const details=await scanPatientBackground(patient);
+      await supplementFromPatientScreen(patient,details);
+      return details;
+    }
     let found,selected;
     if(patient.mode==='fonet-list'){
       found=openListRows();
@@ -669,7 +800,7 @@
     return{fields,surgeries,selectedOperation,note,materials,history,stay,imaging,dischargeFields};
   }
   async function processPatient(p){
-    try{const details=await scanPatient(p);const row=state.rows[p.rowIndex];p.tc=details.fields.tc||p.tc;p.name=p.name||details.fields.name;setIfFound(row,'name',p.name);setIfFound(row,'tc',p.tc);const derived=applyResult(p,details);state.results[p.tc||`${p.operationNo}|${p.surgeryDate}`]={status:'Tamamlandı',details,derived:{prolenCount:derived.prolenCount,readmissions:derived.laterAdmissions.length}};log(`${p.name}: tamamlandı, Prolen mesh ${derived.prolenCount}, yeniden yatış ${derived.laterAdmissions.length}`);}
+    try{const details=await scanPatient(p);const row=state.rows[p.rowIndex];p.tc=details.fields.tc||p.tc;p.name=p.name||details.fields.name;setIfFound(row,'name',p.name);setIfFound(row,'tc',p.tc);const derived=applyResult(p,details);const incomplete=details.radiologyAudit?.failures.length||0;const status=incomplete?'Eksik radyoloji':'Tamamlandı';if(incomplete)state.errors++;state.results[`${p.operationNo}|${p.surgeryDate}|${p.rowIndex}`]={status,details,derived:{prolenCount:derived.prolenCount,readmissions:derived.laterAdmissions.length}};log(`${p.name}: ${status}${details.radiologyAudit?`, radyoloji ${details.radiologyAudit.read}/${details.radiologyAudit.total}`:''}`,!!incomplete);}
     catch(error){state.errors++;state.results[p.tc||`${p.operationNo}|${p.surgeryDate}`]={status:'Hata',error:String(error.message||error)};const r=state.rows[p.rowIndex];r[state.headerMap.get('FONET TARAMA DURUMU')]=`Hata: ${error.message||error}`;log(`${p.name||p.operationNo}: ${error.message||error}`,true);}
     state.current++;persist();updateStatus();
   }
@@ -695,6 +826,14 @@
       setIfFound(base,'operationNo',uniq(ordered.map(p=>p.operationNo)).join('; '));
       setIfFound(base,'surgeryDate',uniq(ordered.map(p=>p.surgeryDate)).join('; '));
       const existingCounts=ordered.map(p=>Number(getCell(state.rows[p.rowIndex],'opCount'))||0);
+      for(const key of ['defect','location']){
+        const values=uniq(ordered.map(p=>norm(getCell(state.rows[p.rowIndex],key))).filter(Boolean));
+        if(values.length)setIfFound(base,key,key==='location'?uniq(values.flatMap(v=>v.match(/M[1-5]/g)||[])).sort().join(', '):values.join('; '));
+      }
+      for(const header of ['RADYOLOJİ KAYNAKLARI','RADYOLOJİ OKUMA','MALİGNİTE KAYNAĞI']){
+        const column=state.headerMap.get(header);
+        base[column]=uniq(ordered.map(p=>state.rows[p.rowIndex][column]).filter(Boolean)).join('\n').slice(0,32000);
+      }
       const opCount=Math.max(distinctOperations.length,...existingCounts,1);
       setIfFound(base,'opCount',opCount);
       if(opCount>1){
@@ -719,16 +858,16 @@
     state.running=true;state.stopped=false;state.errors=0;$('#fx-start').disabled=true;$('#fx-pause').disabled=false;$('#fx-stop').disabled=false;
     const queue=state.patients.slice(state.current);
     const worker=async()=>{while(queue.length&&!state.stopped){while(state.paused&&!state.stopped)await sleep(250);const p=queue.shift();if(!p||state.stopped)return;await processPatient(p);}};
-    if(state.mode==='fonet-list')await Promise.all(Array.from({length:Math.min(6,queue.length)},worker));
+    if(state.mode==='fonet-list')await worker();
     else for(const p of queue){if(state.stopped)break;while(state.paused&&!state.stopped)await sleep(250);if(!state.stopped)await processPatient(p);}
     state.running=false;
     const merged=!state.stopped?consolidateDuplicatePatients():0;
     if(state.destroyRequested){panel.remove();delete window.__fonetExcelHastaTarayici;return;}
     $('#fx-start').disabled=false;$('#fx-pause').disabled=true;$('#fx-stop').disabled=true;$('#fx-export').disabled=false;
-    updateStatus(state.stopped?'Tarama durduruldu. Sonuçlar kaydedildi.':`Tarama tamamlandı.${merged?` ${merged} yinelenen ameliyat satırı aynı TC altında birleştirildi.`:''} Güncellenmiş Excel indirilebilir.`);
+    updateStatus(state.stopped?'Tarama durduruldu. Sonuçlar kaydedildi.':`Tarama sona erdi. Hatalı veya eksik kayıt: ${state.errors}.${merged?` ${merged} yinelenen ameliyat satırı aynı TC altında birleştirildi.`:''} Radyoloji okuma sayılarını Excel'den kontrol edin.`);
   }
   function ensureOutputColumns(){
-    for(const h of ['PROLEN MESH ADEDİ','MALZEME KAYDI','FONET TARAMA DURUMU']){
+    for(const h of ['PROLEN MESH ADEDİ','MALZEME KAYDI','FONET TARAMA DURUMU','MALİGNİTE KAYNAĞI','RADYOLOJİ OKUMA','RADYOLOJİ KAYNAKLARI']){
       let ix=state.headers.findIndex(x=>upper(x)===upper(h));
       if(ix<0){ix=state.headers.length;state.headers.push(h);state.rows[0][ix]=h;for(let r=1;r<state.rows.length;r++)if(state.rows[r][ix]===undefined)state.rows[r][ix]='';}
       state.headerMap.set(h,ix);
@@ -778,8 +917,8 @@
     if(!state.rows.length)return;
     const ws=XLSX.utils.aoa_to_sheet(state.rows);ws['!cols']=state.headers.map((h,i)=>({wch:Math.min(60,Math.max(12,Math.max(...state.rows.slice(0,46).map(r=>norm(r[i]).length))+2))}));
     state.workbook.Sheets[state.sheetName]=ws;
-    const auditRows=[['TC','Hasta','Durum','Prolen mesh adedi','Yeniden yatış','Hata']];
-    for(const p of state.patients){const rr=state.results[p.tc||`${p.operationNo}|${p.surgeryDate}`]||{};auditRows.push([p.tc,p.name,rr.status||'Taranmadı',rr.derived?.prolenCount??'',rr.derived?.readmissions??'',rr.error||'']);}
+    const auditRows=[['TC','Hasta','Durum','Prolen mesh adedi','Yeniden yatış','Hata','Radyoloji toplam','Radyoloji okunan','Okunamayan raporlar']];
+    for(const p of state.patients){const rr=state.results[`${p.operationNo}|${p.surgeryDate}|${p.rowIndex}`]||state.results[p.tc||`${p.operationNo}|${p.surgeryDate}`]||{};const a=rr.details?.radiologyAudit;auditRows.push([p.tc,p.name,rr.status||'Taranmadı',rr.derived?.prolenCount??'',rr.derived?.readmissions??'',rr.error||'',a?.total??'',a?.read??'',a?.failures.join('; ')||'']);}
     state.workbook.Sheets['FONET Tarama Kaydı']=XLSX.utils.aoa_to_sheet(auditRows);if(!state.workbook.SheetNames.includes('FONET Tarama Kaydı'))state.workbook.SheetNames.push('FONET Tarama Kaydı');
     XLSX.writeFile(state.workbook,`FONET_TARANMIS_${new Date().toISOString().slice(0,10)}.xlsx`,{compression:true,cellStyles:true});
   }

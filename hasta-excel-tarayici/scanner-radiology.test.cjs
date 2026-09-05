@@ -1,0 +1,22 @@
+const fs=require('node:fs');
+const vm=require('node:vm');
+const assert=require('node:assert/strict');
+const source=fs.readFileSync(__dirname+'/scanner.js','utf8');
+function section(name,next){return source.slice(source.indexOf('  function '+name+'('),source.indexOf('  '+next,source.indexOf('  function '+name+'(')));}
+const context={};vm.createContext(context);
+vm.runInContext(`const norm=x=>String(x??'').replace(/\\s+/g,' ').trim();const upper=x=>norm(x).toLocaleUpperCase('tr-TR');const uniq=x=>[...new Set(x)];const cleanText=norm;`+section('classifyEhsLocation','function derive')+section('extractHerniaMeasurements','function uiShown'),context);
+const classify=context.classifyEhsLocation;
+assert.equal(classify(['Epigastrik bölgede herni defekti.'],''),'M2');
+assert.equal(classify(['Umbilikal herni. İnfraumbilikal defekt. Suprapubik herni.'],''),'M3, M4, M5');
+assert.equal(classify(['Subksifoid herni. Epigastrik herni.'],''),'M1, M2');
+assert.equal(classify(['Göbeğin 2 cm altında herni defekti.'],''),'M3');
+assert.equal(classify(['Göbeğin 5 cm altında herni defekti.'],''),'M4');
+assert.equal(classify(['Orta hattın sağında 4x2cm herni kesesi mevcuttur.'],''),'');
+assert.equal(classify(['Epigastrik herni izlenmedi.'],''),'');
+const measurements=context.extractHerniaMeasurements(["Orta hattın sağında yaklaşık 4x2cm’lik herni kesesi mevcuttur.",'Umbilikal fasya defekti 12x8 mm.','Karaciğerde 7x3 cm kist.']);
+assert.equal(measurements.length,2);
+assert.match(measurements[0],/4 x 2 cm.*herni kesesi; defekt ölçüsü belirtilmemiş/);
+assert.match(measurements[1],/12 x 8 mm/);
+assert.match(source,/Tüm Gelişler seçilemedi/);
+assert.match(source,/Rapor değişimi doğrulanamadı/);
+console.log('10 extraction/assertion checks passed; live integration still requires verification.');
