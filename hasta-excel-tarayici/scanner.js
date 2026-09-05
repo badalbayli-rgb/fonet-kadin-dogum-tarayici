@@ -96,7 +96,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.9.3 — Arka plan</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.9.4 — Arka plan</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -129,7 +129,7 @@
   const headerAliases = {
     name:['ADI','HASTA','ADI SOYADI'], tc:['TC','TC KİMLİK NO','T.C.'], operationNo:['İŞLEM NO','ISLEM NO'], phone:['TELEFON','TELEFON NO'], sex:['CİNSİYET'], age:['YAŞ'], asa:['ASA'],
     surgeryDate:['AMELİYAT TARİHİ'], duration:['AMELİYAT SÜRESİ(DK)','AMELİYAT SÜRESİ'], defect:['DEFEKTİN BOYUTU'], recurrence:['NÜKS HASTA MI'], stay:['YATIŞ SÜRESİ'], location:['LOKALİZASYON'],
-    readmission:['YENİDEN YATIŞ'], followup:['TAKİP SÜRESİ(EN AZ 12 AY)'], followRecurrence:['TAKİPTE NÜKS VAR MI?'], preop:['PREOPERATİF TANI (NEDEN İNSİZYONEL HERNİ OLMUŞ )'],
+    readmission:['YENİDEN YATIŞ'], followup:['TAKİP SÜRESİ(EN AZ 12 AY)'], followRecurrence:['TAKİPTE NÜKS VAR MI?'], preop:['PREOPERATİF TANI (NEDEN İNSİZYONEL HERNİ OLMUŞ )','PREOPERATİF TANI','PREOPERATIF TANI'],
     malign:['MALİGN ETYOLOJİ'], benign:['BENİGN ETYOLOJİ'], onlay:['ONLAY ONARIM'], sublay:['SUBLAY ONARIM'], inlay:['İNLAY ONARIM'],
     onlayAbd:['ONLAY+ABDOMİNOPLASTİ/PANNİKÜLEKTOMİ'], sublayAbd:['SUBLAY+ABDOMİNOPLASTİ/PANNİKÜLEKTOMİ'], inlayAbd:['İNLAY+ABDOMİNOPLASTİ/PANNİKÜLEKTOMİ'],
     sso:['POSTOPERATİF SSO(SURGİCAL SİTE OCCURRENCE)'], necrosis:['NEKROZ'], vac:['VAC'], seroma:['SEROMA'], revision:['REVİZYON'], opCount:['OP SAYI'], ht:['YANDAŞ HT'], dm:['YANDAŞ DM'],
@@ -339,6 +339,13 @@
     }
     return uniq(evidence);
   }
+  function priorAbdominalOperations(rows,surgeryDate){
+    if(!surgeryDate)return[];
+    return rows.filter(x=>{
+      const text=upper(x.text).normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      return x.date<surgeryDate&&/ABDOM|LAPAROT|LAPAROSK|APPEN|KOLESIST|KOLEKT|REZEKS|GASTREK|HERNI|FITIK|SEZARYEN|HISTEREKT|OOFOREKT|SALPEN|KOLON|REKT|ILEOST|KOLOST|PANKREAT|SPLENEKT|BARSAK|BAGIRSAK|UMBILIK|MIDE|SLEEVE/.test(text)&&!/PLANLAN|PLANLANDI|ONERILDI|OPERE EDILMEDI/.test(text);
+    }).sort((a,b)=>a.date-b.date);
+  }
   function derive(patient, details){
     const surgeryDate=parseDateTime(patient.surgeryDate)||parseDateTime(details.selectedOperation);
     const note=details.note.join(' | '), allHistory=details.history.join(' | '), all=upper(`${note} ${allHistory} ${(details.stay||[]).join(' | ')}`);
@@ -347,7 +354,7 @@
     const laterHerniaOps=opRows.filter(x=>surgeryDate&&x.date>surgeryDate&&/603801|İNSİZYONEL HERNİ|VENTRAL HERNİ/i.test(x.text));
     const laterDebridement=opRows.filter(x=>surgeryDate&&x.date>surgeryDate&&/YARA[^|]{0,40}DEBRİDMAN|YARA[^|]{0,40}DEBRIDMAN|DEBRİDMAN|DEBRIDMAN/i.test(x.text));
     const laterAdmissions=details.history.filter(x=>{const d=parseDate(x);return d&&surgeryDate&&dateDiffDays(surgeryDate,d)>2&&/\bYATIŞ\b/i.test(x);});
-    const previousAbdominal=opRows.filter(x=>surgeryDate&&x.date<surgeryDate&&/ABDOM|LAPAROT|LAPAROSK|APPEN|KOLESİST|KOLEKT|REZEKS|GASTREK|HERNİ|FITIK|SEZARYEN|HİSTEREKT|OOFOREKT|SALPEN|KOLON|REKT|İLEOST|KOLOST|PANKREAT|SPLENEKT|BARSAK|BAĞIRSAK|UMBİLİK|MİDE|BYPASS|SLEEVE/i.test(x.text));
+    const previousAbdominal=priorAbdominalOperations(opRows,surgeryDate);
     const cancers=malignancyEvidence(details);
     const herniaOpRows=opRows.filter(x=>/603801|\bK43(?:\.|-)|İNSİZYONEL HERNİ|INSIZYONEL HERNI|VENTRAL HERNİ|VENTRAL HERNI/i.test(x.text));
     const herniaOperationDates=uniq([
@@ -396,7 +403,7 @@
     row[state.headerMap.get('TC KONTROLÜ')]=details.fields.tc?'Hasta/geliş kimliği eşleştirildi':'TC servis yanıtında bulunamadı; mevcut hücre korundu';
     setIfFound(row,'recurrence',d.opCount>1?'Evet':'Hayır');setIfFound(row,'opCount',d.opCount);
     setIfFound(row,'followRecurrence',d.laterHerniaOps.length?`Evet – ${d.laterHerniaOps.map(x=>`${dateText(x.date)} ${norm(x.text)}`).join('; ')}`:'Hayır');
-    if(d.previousAbdominal.length)setIfFound(row,'preop',d.previousAbdominal.map(x=>`${dateText(x.date)} ${norm(x.text)}`).join('; '));
+    if(d.previousAbdominal.length)setIfFound(row,'preop',uniq(d.previousAbdominal.map(x=>`${dateText(x.date)} — ${norm(x.text).replace(/^\d{2}\.\d{2}\.\d{4}(?:\s+\d{2}:\d{2}(?::\d{2})?)?\s*[|—-]?\s*/, '')}`)).join('; '));
     if(d.laterAdmissions.length)setIfFound(row,'readmission','Evet — '+d.laterAdmissions.map(x=>norm(x)).join('; '));
     if(d.cancers.length){setIfFound(row,'malign',1);setIfFound(row,'benign',0);row[state.headerMap.get('MALİGNİTE KAYNAĞI')]=d.cancers.join('; ');}
     if(d.meshCount>=2){setIfFound(row,'onlay',1);setIfFound(row,'inlay',0);}
@@ -921,7 +928,7 @@
       const admissions=uniq(ordered.map(p=>norm(getCell(state.rows[p.rowIndex],'readmission'))).filter(v=>v&&!/^(YOK|HAYIR|0)$/i.test(v)));
       for(const patient of ordered.slice(1)){
         const other=state.rows[patient.rowIndex];
-        for(let i=0;i<state.headers.length;i++)if((base[i]===''||base[i]==null)&&other[i]!==''&&other[i]!=null)base[i]=other[i];
+        for(let i=0;i<state.headers.length;i++)if(!(headerAliases.preop||[]).map(upper).includes(upper(state.headers[i]))&&(base[i]===''||base[i]==null)&&other[i]!==''&&other[i]!=null)base[i]=other[i];
         removeRows.add(patient.rowIndex);merged++;
       }
       setIfFound(base,'operationNo',uniq(ordered.map(p=>p.operationNo)).join('; '));
