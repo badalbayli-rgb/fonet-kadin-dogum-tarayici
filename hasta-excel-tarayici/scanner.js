@@ -4,6 +4,8 @@
   window.__fonetExcelHastaTarayici = true;
 
   const STORE_KEY = 'fonetExcelHastaTarayiciV1';
+  const activeRequests=new Set();
+  const abortRequests=()=>{for(const request of activeRequests)request.abort();};
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const norm = value => String(value ?? '').replace(/\s+/g, ' ').trim();
   const cleanText = value => norm(String(value ?? '').replace(/<br\s*\/?>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/gi,' ').replace(/&amp;/gi,'&'));
@@ -94,7 +96,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.9.0</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.9.1 — Arka plan</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -411,7 +413,7 @@
     row[state.headerMap.get('FONET TARAMA DURUMU')] = 'Tamamlandı';
     if(details.radiologyAudit){
       const a=details.radiologyAudit;
-      row[state.headerMap.get('RADYOLOJİ OKUMA')]=`${a.read}/${a.total} rapor okundu`;
+      row[state.headerMap.get('RADYOLOJİ OKUMA')]=`${a.read}/${a.total} rapor okundu; raporsuz tetkik: ${a.noReport||0}; iptal/onaysız: ${a.excluded||0}; hata: ${a.failures.length}`;
       row[state.headerMap.get('RADYOLOJİ KAYNAKLARI')]=details.imaging.join('\n').slice(0,32000);
       row[state.headerMap.get('FONET TARAMA DURUMU')]=a.failures.length?`Eksik: ${a.failures.length} radyoloji raporu okunamadı`:'Tamamlandı';
     }
@@ -420,11 +422,18 @@
 
   function apiBase(){return `${location.origin}/hbys-rs/hbys`;}
   async function apiJson(path){
+    if(state.stopped)throw new Error('Tarama durduruldu');
     const sep=path.includes('?')?'&':'?';
-    const response=await fetch(`${apiBase()}${path}${sep}_dc=${Date.now()}`,{credentials:'include',headers:{Accept:'application/json, text/plain, */*'}});
+    const controller=new AbortController();
+    activeRequests.add(controller);
+    const timer=setTimeout(()=>controller.abort(),15000);
+    try{
+    const response=await fetch(`${apiBase()}${path}${sep}_dc=${Date.now()}`,{signal:controller.signal,credentials:'include',headers:{Accept:'application/json, text/plain, */*'}});
     const body=await response.text();
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
     try{return JSON.parse(body);}catch{throw new Error('FONET yanıtı okunamadı');}
+    }catch(error){if(error.name==='AbortError')throw new Error('İstek 15 saniyede yanıt vermedi');throw error;}
+    finally{clearTimeout(timer);activeRequests.delete(controller);}
   }
   function payloadRows(payload){
     if(Array.isArray(payload))return payload;
@@ -550,23 +559,60 @@
     url.searchParams.set('start','0');url.searchParams.set('page','1');url.searchParams.set('limit','1000');
     return patientScoped?`${url.pathname.replace(/^\/hbys-rs\/hbys/i,'')}${url.search}`:'';
   }
-  async function radiologyHistory(patient){
-    if(!patient.gelisId)return[];
-    const id=Number(patient.gelisId)||patient.gelisId;
-    const filters=['hastaGelisId','hastaGelis.id'].map(property=>encodeURIComponent(JSON.stringify([{property,value:id,filterType:'kriterPanel',type:'Long',operator:'='}])));
-    const livePath=descriptorPath(extStoreDescriptor(/Radyoloji Sonuç Listesi|Radyoloji.*Sonuç/i),patient);
-    const paths=[
-      livePath,
-      `/Ris/RisHizmetSonuc/getRisHizmetSonucInfoList?start=0&limit=500&page=1&hastaGelisId=${encodeURIComponent(id)}`,
-      ...filters.map(filter=>`/Ris/RisHizmetSonuc/getRisHizmetSonucInfoList?start=0&limit=500&page=1&filter=${filter}`)
-    ].filter(Boolean);
-    for(const path of paths){
-      const payload=await settled(path);if(payload.__error)continue;
-      const allRows=payloadRows(payload);
-      const rows=path===livePath?allRows:allRows.filter(row=>Object.values(flatObject(row)).some(value=>norm(value)===norm(patient.gelisId)||norm(value)===norm(patient.birimSevkId)||norm(value)===norm(patient.kimlikId)));
-      if(rows.length)return rows.map(x=>objectText(x));
-    }
-    return[];
+  // FONET risSonucForm: HASTA -> hastaId; report body -> getRisRaporSonucByRaporId.
+  const radiologyCache=new Map();
+  async function radiologyHistory(patient,hastaId){
+    if(!hastaId)throw new Error('Radyoloji için hasta dosya kimliği doğrulanamadı');
+    const cacheKey=String(hastaId);
+    if(radiologyCache.has(cacheKey))return radiologyCache.get(cacheKey);
+    const task=(async()=>{
+      const records=[],reports=[],failures=[];let expected=null,noReport=0,excluded=0;
+      const filter=encodeURIComponent(JSON.stringify([{property:'hastaId',value:Number(hastaId),type:'Long',operator:'='}]));
+      for(let start=0;start<10000;start+=500){
+        if(state.stopped)throw new Error('Tarama durduruldu');
+        const payload=await apiJson('/Ris/RisHizmetSonuc/getRisHizmetSonucInfoList?start='+start+'&limit=500&page='+(start/500+1)+'&filter='+filter);
+        if(payload.success===false)throw new Error('Radyoloji listesi alınamadı');
+        const rows=Array.isArray(payload.data)?payload.data:Array.isArray(payload.rows)?payload.rows:null;
+        if(!rows)throw new Error('Radyoloji liste yanıtının yapısı doğrulanamadı');
+        const total=payload.totalCount??payload.total;
+        if(total!=null)expected=Number(total);
+        records.push(...rows);
+        if(expected!=null&&records.length>=expected)break;
+        if(rows.length<500)break;
+      }
+      if(expected!=null&&records.length<expected)failures.push('Radyoloji listesi eksik: '+records.length+'/'+expected);
+      if(records.length>=10000&&expected==null)failures.push('Radyoloji liste sınırına ulaşıldı; listenin tamamı doğrulanamadı');
+      const uniqueReports=new Map();
+      for(const record of records){
+        if(!record.raporId){noReport++;continue;}
+        uniqueReports.set(String(record.raporId),record);
+      }
+      let index=0;
+      for(const [id,record] of uniqueReports){
+        if(state.stopped)throw new Error('Tarama durduruldu');
+        while(state.paused&&!state.stopped)await sleep(250);
+        log(patient.name+': arka plan rapor '+(++index)+'/'+uniqueReports.size);
+        let result;
+        for(let attempt=0;attempt<2;attempt++){
+          try{
+            const payload=await apiJson('/Ris/RisHizmetSonuc/getRisRaporSonucByRaporId/'+encodeURIComponent(id));
+            if(payload.success===false||!payload.data)throw new Error('Rapor yanıtı alınamadı');
+            const data=payload.data;
+            const text=uniq([data.raporTextByRapor,data.bulgular,data.cekimTeknigi,data.karsilastirma].map(cleanText).filter(Boolean)).join(' | ');
+            if(/İsteyen Branş Görebilir|İsteyen Dr. Görebilir/i.test(text))throw new Error('Rapora erişim yetkisi yok');
+            if(data.durum!=null&&Number(data.durum)!==1){excluded++;result=true;break;}
+            if(!data.onayTarihi&&!data.asistanOnayTarihi){excluded++;result=true;break;}
+            if(!text)throw new Error('Onaylı raporun metni boş');
+            reports.push({source:'Rapor '+id+' | '+objectText(record)+' | '+(data.onayTarihi||data.asistanOnayTarihi),text});
+            result=true;break;
+          }catch(error){if(attempt===1)failures.push('Rapor '+id+': '+error.message);}
+        }
+      }
+      return{reports,audit:{total:uniqueReports.size,read:reports.length,noReport,excluded,failures,examTotal:records.length}};
+    })();
+    radiologyCache.set(cacheKey,task);
+    try{const result=await task;if(result.audit.failures.length)radiologyCache.delete(cacheKey);return result;}
+    catch(error){radiologyCache.delete(cacheKey);throw error;}
   }
   async function settled(path){try{return await apiJson(path);}catch(error){return{__error:String(error.message||error)};}}
   async function operationHistory(patient){
@@ -579,6 +625,12 @@
     if(!patient.ameliyatId||!patient.gelisId||!patient.birimSevkId)throw new Error('Kayıt servis kimlikleri bulunamadı; listeyi yeniden alın');
     const detailPayload=await settled(`/Ameliyat/Ameliyat/getKayit/${encodeURIComponent(patient.birimSevkId)}`);
     const detailRoot=detailPayload.__error?{}:(detailPayload.data||detailPayload);
+    const visit=detailRoot.birimSevk?.hastaGelis;
+    const matchedPatient=visit?.hasta;
+    const identity=matchedPatient?.kimlik;
+    if(!identity||!matchedPatient.id||String(visit.id)!==String(patient.gelisId)||String(detailRoot.birimSevk.id)!==String(patient.birimSevkId))throw new Error('Hasta ve geliş kimliği servis yanıtıyla eşleşmedi');
+    const verifiedName=norm(identity.adiSoyadi||[identity.adi,identity.soyadi].filter(Boolean).join(' '));
+    if(verifiedName&&upper(verifiedName)!==upper(patient.name))throw new Error('Hasta adı servis yanıtıyla eşleşmedi; başka hastaya yazılmadı');
     const materialIds=uniq([
       patient.birimSevkId,patient.isteyenBirimSevkId,
       deepValue(detailRoot,['birimSevkId']),deepValue(detailRoot,['isteyenBirimSevkId']),
@@ -605,16 +657,16 @@
     const services=serviceRows.map(x=>objectText(x));
     const consultations=consultRows.map(x=>objectText(x));
     const patientText=objectText(patientRoot);
-    const combinedRoot={detail:detailRoot,patient:patientRoot};
+    const combinedRoot={identity,detail:detailRoot,patient:patientRoot};
     const ageSexRaw=deepValue(combinedRoot,['yasCinsiyetDogumTarihi','yasCinsiyet'])||deepPathValue(combinedRoot,/(?:yas|yaş).*cinsiyet|cinsiyet.*(?:dogum|doğum)/i);
     const genderRaw=deepValue(combinedRoot,['cinsiyetAdi','cinsiyetAd','cinsiyetKodu','cinsiyet'])||deepPathValue(combinedRoot,/cinsiyet.*(?:\.adi|\.adı|\.ad|aciklama|açıklama|text|kodu)$/i)||ageSexRaw;
-    const gender=/KADIN|\bK\b/i.test(genderRaw)?'Kadın':/ERKEK|\bE\b/i.test(genderRaw)?'Erkek':'';
+    const gender=Number(identity.cinsiyet)===2?'Kadın':Number(identity.cinsiyet)===1?'Erkek':/KADIN|\bK\b/i.test(genderRaw)?'Kadın':/ERKEK|\bE\b/i.test(genderRaw)?'Erkek':'';
     const birthDate=deepValue(combinedRoot,['dogumTarihi','doğumTarihi'])||deepPathValue(combinedRoot,/(?:dogum|doğum).*tarih/i);
     const birth=parseDateTime(birthDate),calculatedAge=birth?Math.max(0,new Date().getFullYear()-birth.getFullYear()-(new Date()<new Date(new Date().getFullYear(),birth.getMonth(),birth.getDate())?1:0)):'';
     const ageSex=ageSexRaw||deepValue(combinedRoot,['yas'])||(gender?`${calculatedAge||''}Yıl (${gender}) / ${birthDate}`:'')||patientText.match(/\d+\s*(?:Yıl|Yaş)[^|]{0,40}\((?:Kadın|Erkek)\)/i)?.[0]||'';
     const fields={
       operationNo:patient.operationNo,
-      tc:deepValue(combinedRoot,['kimlikNo','tcKimlikNo','tckn']),
+      tc:norm(identity.tcKimlikNo||identity.kimlikNo||identity.tckn),
       name:patient.name||deepValue(combinedRoot,['hastaAdiSoyadi','hastaAdSoyad']),
       phone:deepValue(combinedRoot,['telefonGsm','cepTelefonu','cepTelefon','telefonNo','telefon','gsm','mobilTelefon']),
       ageSex,
@@ -626,11 +678,14 @@
       deathDate:deepValue(combinedRoot,['olumTarihi','ölümTarihi','vefatTarihi'])
     };
     const dischargeFields=Object.entries(flatObject(patientRoot)).filter(([k])=>/taburcu|cikis|bitiş|bitis/i.test(k)).map(([,v])=>norm(v));
+    let rad;
+    try{rad=await radiologyHistory(patient,matchedPatient.id);}
+    catch(error){rad={reports:[],audit:{total:0,read:0,failures:[error.message],noReport:0,excluded:0}};}
     return{
       fields,selectedOperation:objectText(patient.raw||{})||`${patient.surgeryDate} ${patient.name}`,
       surgeries:history.length?history:[objectText(patient.raw||{})],note,
       materials:uniq(materialRecords.map(materialRecordText).filter(x=>/MESH|MEŞ|CERRAHİ YAMA|HERNİ YAMASI|YAMA KOMPOZİT|PROLEN|PROLENE/i.test(x))),
-      history:uniq([...history,...visitHistory,...consultations,...services]),stay:[patientText],imaging:uniq([...radiology,...services.filter(x=>/RADYOLOJ|TOMOGRAF|\bBT\b|USG|MRG|ABDOM|BATIN/i.test(x))]),dischargeFields
+      history:uniq([...history,...visitHistory,...consultations,...services]),stay:[patientText],imaging:rad.reports.map(r=>r.source+' | '+r.text),radiologyAudit:rad.audit,dischargeFields
     };
   }
   function uiComponents(selector){
@@ -747,9 +802,7 @@
   }
   async function scanPatient(patient){
     if(patient.mode==='fonet-list'){
-      const details=await scanPatientBackground(patient);
-      await supplementFromPatientScreen(patient,details);
-      return details;
+      return await scanPatientBackground(patient);
     }
     let found,selected;
     if(patient.mode==='fonet-list'){
@@ -800,8 +853,8 @@
     return{fields,surgeries,selectedOperation,note,materials,history,stay,imaging,dischargeFields};
   }
   async function processPatient(p){
-    try{const details=await scanPatient(p);const row=state.rows[p.rowIndex];p.tc=details.fields.tc||p.tc;p.name=p.name||details.fields.name;setIfFound(row,'name',p.name);setIfFound(row,'tc',p.tc);const derived=applyResult(p,details);const incomplete=details.radiologyAudit?.failures.length||0;const status=incomplete?'Eksik radyoloji':'Tamamlandı';if(incomplete)state.errors++;state.results[`${p.operationNo}|${p.surgeryDate}|${p.rowIndex}`]={status,details,derived:{prolenCount:derived.prolenCount,readmissions:derived.laterAdmissions.length}};log(`${p.name}: ${status}${details.radiologyAudit?`, radyoloji ${details.radiologyAudit.read}/${details.radiologyAudit.total}`:''}`,!!incomplete);}
-    catch(error){state.errors++;state.results[p.tc||`${p.operationNo}|${p.surgeryDate}`]={status:'Hata',error:String(error.message||error)};const r=state.rows[p.rowIndex];r[state.headerMap.get('FONET TARAMA DURUMU')]=`Hata: ${error.message||error}`;log(`${p.name||p.operationNo}: ${error.message||error}`,true);}
+    try{const details=await scanPatient(p);if(state.stopped)return;const row=state.rows[p.rowIndex];p.tc=details.fields.tc||p.tc;p.name=p.name||details.fields.name;setIfFound(row,'name',p.name);setIfFound(row,'tc',p.tc);const derived=applyResult(p,details);const incomplete=details.radiologyAudit?.failures.length||0;const status=incomplete?'Eksik radyoloji':'Tamamlandı';if(incomplete)state.errors++;state.results[`${p.operationNo}|${p.surgeryDate}|${p.rowIndex}`]={status,details,derived:{prolenCount:derived.prolenCount,readmissions:derived.laterAdmissions.length}};log(`${p.name}: ${status}${details.radiologyAudit?`, radyoloji ${details.radiologyAudit.read}/${details.radiologyAudit.total}`:''}`,!!incomplete);}
+    catch(error){if(state.stopped)return;state.errors++;state.results[`${p.operationNo}|${p.surgeryDate}|${p.rowIndex}`]={status:'Hata',error:String(error.message||error)};const r=state.rows[p.rowIndex];r[state.headerMap.get('FONET TARAMA DURUMU')]=`Hata: ${error.message||error}`;log(`${p.name||p.operationNo}: ${error.message||error}`,true);}
     state.current++;persist();updateStatus();
   }
   function consolidateDuplicatePatients(){
@@ -856,14 +909,15 @@
   async function run(){
     if(!state.patients.length||state.running)return;
     state.running=true;state.stopped=false;state.errors=0;$('#fx-start').disabled=true;$('#fx-pause').disabled=false;$('#fx-stop').disabled=false;
-    const queue=state.patients.slice(state.current);
+    const queue=state.patients.filter(p=>!state.results[`${p.operationNo}|${p.surgeryDate}|${p.rowIndex}`]);
+    state.current=state.patients.length-queue.length;
     const worker=async()=>{while(queue.length&&!state.stopped){while(state.paused&&!state.stopped)await sleep(250);const p=queue.shift();if(!p||state.stopped)return;await processPatient(p);}};
-    if(state.mode==='fonet-list')await worker();
+    if(state.mode==='fonet-list')await Promise.all(Array.from({length:3},()=>worker()));
     else for(const p of queue){if(state.stopped)break;while(state.paused&&!state.stopped)await sleep(250);if(!state.stopped)await processPatient(p);}
     state.running=false;
     const merged=!state.stopped?consolidateDuplicatePatients():0;
     if(state.destroyRequested){panel.remove();delete window.__fonetExcelHastaTarayici;return;}
-    $('#fx-start').disabled=false;$('#fx-pause').disabled=true;$('#fx-stop').disabled=true;$('#fx-export').disabled=false;
+    $('#fx-start').disabled=!state.stopped;$('#fx-pause').disabled=true;$('#fx-stop').disabled=true;$('#fx-export').disabled=false;
     updateStatus(state.stopped?'Tarama durduruldu. Sonuçlar kaydedildi.':`Tarama sona erdi. Hatalı veya eksik kayıt: ${state.errors}.${merged?` ${merged} yinelenen ameliyat satırı aynı TC altında birleştirildi.`:''} Radyoloji okuma sayılarını Excel'den kontrol edin.`);
   }
   function ensureOutputColumns(){
@@ -923,9 +977,10 @@
     XLSX.writeFile(state.workbook,`FONET_TARANMIS_${new Date().toISOString().slice(0,10)}.xlsx`,{compression:true,cellStyles:true});
   }
   $('#fx-load').onclick=loadExcel;$('#fx-fonet-list').onclick=loadFonetList;$('#fx-start').onclick=run;$('#fx-pause').onclick=()=>{state.paused=!state.paused;$('#fx-pause').textContent=state.paused?'Devam Et':'Duraklat';updateStatus(state.paused?'Tarama duraklatıldı.':'Tarama sürüyor...');};
-  $('#fx-stop').onclick=()=>{state.stopped=true;state.paused=false;};$('#fx-export').onclick=exportExcel;
+  $('#fx-stop').onclick=()=>{state.stopped=true;state.paused=false;abortRequests();};$('#fx-export').onclick=exportExcel;
   $('#fx-close').onclick=()=>{
     state.stopped=true;state.paused=false;
+    abortRequests();
     if(state.running){state.destroyRequested=true;panel.style.display='none';}
     else{panel.remove();delete window.__fonetExcelHastaTarayici;}
   };
