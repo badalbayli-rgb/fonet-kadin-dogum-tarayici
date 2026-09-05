@@ -1,0 +1,12 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync(__dirname+'/scanner.js','utf8');
+const ctx={norm:x=>String(x??'').trim(),payloadRows:x=>x.data||[],parseDateTime:t=>{const m=String(t).match(/(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2}))?/);return m?new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0)):null;}};
+vm.createContext(ctx);vm.runInContext(source.slice(source.indexOf('  function postoperativeStay('),source.indexOf('  async function scanPatientBackground(')),ctx);
+const calc=ctx.postoperativeStay;
+assert.equal(calc('01.01.2020 12:00',{cikisTarihi:'04.01.2020 12:00'},{}).days,3);
+assert.equal(calc('01.01.2020 12:00',{cikisTarihi:'01.01.2020'},{}).days,0);
+assert.equal(calc('05.01.2020',{cikisTarihi:'04.01.2020'},{}).days,'');
+assert.equal(calc('02.01.2020',{}, {data:[{yatisTarihi:'01.01.2020',cikisTarihi:'03.01.2020'},{yatisTarihi:'03.01.2020',cikisTarihi:'06.01.2020'}]}).days,4);
+assert.equal(calc('02.01.2020',{}, {data:[{yatisTarihi:'01.01.2020',cikisTarihi:null}]}).days,'');
+assert.match(source,/getHastaGelisPanelInfo/);assert.match(source,/tcCandidates.length>1/);
+console.log('TC source guards and postoperative stay tests passed.');
