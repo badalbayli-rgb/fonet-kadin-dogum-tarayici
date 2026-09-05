@@ -96,7 +96,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.9.1 — Arka plan</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v1.9.2 — Arka plan</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -324,6 +324,21 @@
     if(codes.size)return [...codes].sort().join(', ');
     return '';
   }
+  function malignancyEvidence(details){
+    const evidence=[];
+    for(const [label,texts] of [['Tanı/konsültasyon',details.history],['Ameliyat notu',details.note],['Ameliyat kaydı',details.surgeries],['Radyoloji',details.imaging],['Patoloji/biyopsi',details.pathology]]){
+      for(const text of texts||[]){
+        for(const sentence of cleanText(text).split(/\||(?<=[.!?])\s+/)){
+          const s=upper(sentence).normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+          if(!/\bC\d{2}(?:\.\d+)?\b|MALIGN|KANSER|KARSINOM|ADENOKARSINOM|METASTA|610410|REKTUM TUMORUNDE LOW ANTERIOR REZEKSIYON/.test(s))continue;
+          if(/AILE OYKUSU|ANNESINDE|BABASINDA|SOYGECMIS|BENIGN|MALIGN(?:ITE|ANSI| HUCRESI| HUCRESI)?\s*(?:LEHINE BULGU\s*)?(?:YOK|IZLENMEDI|SAPTANMADI|GORULMEDI|NEGATIF)|MALIGNITE ACISINDAN NEGATIF|MALIGNITE DUSUNULMEDI|METASTAZ\s+(?:YOK|IZLENMEDI|SAPTANMADI)/.test(s))continue;
+          const suspect=/SUPHE|LEHINE|OLASI|OLABILIR|EKARTE EDILEME|DUSUNDUR|\?/.test(s);
+          evidence.push(`${label} — ${suspect?'Şüpheli bulgu; kullanıcı liste kuralıyla 1':'Malignite ifadesi; kaynak doğrulaması gerekli'}: ${norm(sentence)}`);
+        }
+      }
+    }
+    return uniq(evidence);
+  }
   function derive(patient, details){
     const surgeryDate=parseDateTime(patient.surgeryDate)||parseDateTime(details.selectedOperation);
     const note=details.note.join(' | '), allHistory=details.history.join(' | '), all=upper(`${note} ${allHistory} ${(details.stay||[]).join(' | ')}`);
@@ -333,11 +348,7 @@
     const laterDebridement=opRows.filter(x=>surgeryDate&&x.date>surgeryDate&&/YARA[^|]{0,40}DEBRİDMAN|YARA[^|]{0,40}DEBRIDMAN|DEBRİDMAN|DEBRIDMAN/i.test(x.text));
     const laterAdmissions=details.history.filter(x=>{const d=parseDate(x);return d&&surgeryDate&&dateDiffDays(surgeryDate,d)>2&&/\bYATIŞ\b/i.test(x);});
     const previousAbdominal=opRows.filter(x=>surgeryDate&&x.date<surgeryDate&&/ABDOM|LAPAROT|LAPAROSK|APPEN|KOLESİST|KOLEKT|REZEKS|GASTREK|HERNİ|FITIK|SEZARYEN|HİSTEREKT|OOFOREKT|SALPEN|KOLON|REKT|İLEOST|KOLOST|PANKREAT|SPLENEKT|BARSAK|BAĞIRSAK|UMBİLİK|MİDE|BYPASS|SLEEVE/i.test(x.text));
-    const malignancyPattern=/\bC\d{2}(?:\.\d+)?\b|MALIGN|KANSER|KARSINOM|ADENOKARSINOM|METASTA|610410|REKTUM TUMORUNDE LOW ANTERIOR REZEKSIYON/;
-    const cancers=uniq([...details.history,...details.note,...(details.surgeries||[])].filter(x=>{
-      const folded=upper(x).normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-      return malignancyPattern.test(folded)&&!/MALIGN(?:ITE)?\s+(?:YOK|IZLENMEDI|SAPTANMADI|NEGATIF)|MALIGNITE ACISINDAN SUPHE/.test(folded);
-    }));
+    const cancers=malignancyEvidence(details);
     const herniaOpRows=opRows.filter(x=>/603801|\bK43(?:\.|-)|İNSİZYONEL HERNİ|INSIZYONEL HERNI|VENTRAL HERNİ|VENTRAL HERNI/i.test(x.text));
     const herniaOperationDates=uniq([
       ...(surgeryDate?[dateText(surgeryDate)]:[]),
@@ -381,10 +392,10 @@
     setIfFound(row,'sex',d.sex); setIfFound(row,'age',d.age?Number(d.age):''); setIfFound(row,'asa',details.fields.asa);
     setIfFound(row,'duration',d.duration||''); setIfFound(row,'followup',d.surgeryDate?dateDiffHuman(d.surgeryDate):'');
     setIfFound(row,'defect',d.defect);setIfFound(row,'location',d.location);setIfFound(row,'stay',d.stayDays);
-    setIfFound(row,'recurrence',d.opCount>1?1:0);setIfFound(row,'opCount',d.opCount);
+    setIfFound(row,'recurrence',d.opCount>1?'Evet':'Hayır');setIfFound(row,'opCount',d.opCount);
     setIfFound(row,'followRecurrence',d.laterHerniaOps.length?`Evet – ${d.laterHerniaOps.map(x=>`${dateText(x.date)} ${norm(x.text)}`).join('; ')}`:'Hayır');
     if(d.previousAbdominal.length)setIfFound(row,'preop',d.previousAbdominal.map(x=>`${dateText(x.date)} ${norm(x.text)}`).join('; '));
-    setIfFound(row,'readmission',d.laterAdmissions.length?d.laterAdmissions.map(x=>norm(x)).join('; '):'YOK');
+    if(d.laterAdmissions.length)setIfFound(row,'readmission','Evet — '+d.laterAdmissions.map(x=>norm(x)).join('; '));
     if(d.cancers.length){setIfFound(row,'malign',1);setIfFound(row,'benign',0);row[state.headerMap.get('MALİGNİTE KAYNAĞI')]=d.cancers.join('; ');}
     if(d.meshCount>=2){setIfFound(row,'onlay',1);setIfFound(row,'inlay',0);}
     else if(d.meshCount===1){setIfFound(row,'inlay',1);setIfFound(row,'onlay',0);}
@@ -861,7 +872,7 @@
     if(state.mode!=='fonet-list')return 0;
     const groups=new Map();
     for(const patient of state.patients){
-      const key=/^\d{11}$/.test(patient.tc)?patient.tc:'';
+      const key=/^\d{11}$/.test(patient.tc)?patient.tc:patient.kimlikId?`kimlik:${patient.kimlikId}`:'';
       if(!key)continue;
       if(!groups.has(key))groups.set(key,[]);groups.get(key).push(patient);
     }
@@ -870,7 +881,9 @@
       if(group.length<2)continue;
       const ordered=[...group].sort((a,b)=>(parseDateTime(a.surgeryDate)||new Date(8640000000000000))-(parseDateTime(b.surgeryDate)||new Date(8640000000000000)));
       const primary=ordered[0],base=state.rows[primary.rowIndex];
-      const distinctOperations=uniq(ordered.map(p=>`${p.surgeryDate} | ${p.operationNo}`));
+      const distinctPatients=[...new Map(ordered.map(p=>[p.ameliyatId?`op:${p.ameliyatId}`:`${p.gelisId||p.operationNo}|${p.surgeryDate}`,p])).values()];
+      const distinctOperations=distinctPatients.map(p=>`${p.surgeryDate} | İşlem: ${p.operationNo}`);
+      const admissions=uniq(ordered.map(p=>norm(getCell(state.rows[p.rowIndex],'readmission'))).filter(v=>v&&!/^(YOK|HAYIR|0)$/i.test(v)));
       for(const patient of ordered.slice(1)){
         const other=state.rows[patient.rowIndex];
         for(let i=0;i<state.headers.length;i++)if((base[i]===''||base[i]==null)&&other[i]!==''&&other[i]!=null)base[i]=other[i];
@@ -878,7 +891,6 @@
       }
       setIfFound(base,'operationNo',uniq(ordered.map(p=>p.operationNo)).join('; '));
       setIfFound(base,'surgeryDate',uniq(ordered.map(p=>p.surgeryDate)).join('; '));
-      const existingCounts=ordered.map(p=>Number(getCell(state.rows[p.rowIndex],'opCount'))||0);
       for(const key of ['defect','location']){
         const values=uniq(ordered.map(p=>norm(getCell(state.rows[p.rowIndex],key))).filter(Boolean));
         if(values.length)setIfFound(base,key,key==='location'?uniq(values.flatMap(v=>v.match(/M[1-5]/g)||[])).sort().join(', '):values.join('; '));
@@ -887,12 +899,20 @@
         const column=state.headerMap.get(header);
         base[column]=uniq(ordered.map(p=>state.rows[p.rowIndex][column]).filter(Boolean)).join('\n').slice(0,32000);
       }
-      const opCount=Math.max(distinctOperations.length,...existingCounts,1);
+      const opCount=distinctOperations.length;
       setIfFound(base,'opCount',opCount);
       if(opCount>1){
-        setIfFound(base,'recurrence',1);
+        setIfFound(base,'recurrence','Evet');
         const later=distinctOperations.slice(1).join('; ');
         if(later)setIfFound(base,'followRecurrence',`Evet – ${later}`);
+        setIfFound(base,'revision',1);
+        const laterVisits=distinctPatients.slice(1).map(p=>{
+          const sameVisit=norm(p.gelisId||p.operationNo)===norm(primary.gelisId||primary.operationNo);
+          return `${p.surgeryDate} — ${sameVisit?'Aynı gelişte tekrar ameliyat; ayrı yatış doğrulanmadı':'Farklı gelişte tekrar ameliyat; yatış tarihi/tanısı ayrıca doğrulanmalı'} (işlem ${p.operationNo})`;
+        });
+        setIfFound(base,'readmission',uniq([...admissions,...laterVisits]).join('; '));
+      }else{
+        if(admissions.length)setIfFound(base,'readmission',admissions.join('; '));
       }
       for(const key of ['malign','benign','ht','dm','copd','hf','goiter','smoking','necrosis','vac','seroma','revision','mortality']){
         const values=ordered.map(p=>getCell(state.rows[p.rowIndex],key));
