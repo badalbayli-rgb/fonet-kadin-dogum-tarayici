@@ -1,7 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const code=fs.readFileSync(__dirname+'/scanner.js','utf8');
 const headers=['name','tc','operationNo','surgeryDate','recurrence','opCount','followRecurrence','readmission','revision','malign','benign'];
-const context={norm:x=>String(x??'').trim(),upper:x=>String(x??'').toLocaleUpperCase('tr-TR'),cleanText:x=>String(x??''),uniq:x=>[...new Set(x)],parseDateTime:x=>new Date(x),getCell:(row,k)=>row[headers.indexOf(k)],setIfFound:(row,k,v)=>{const i=headers.indexOf(k);if(i>=0)row[i]=v;},state:{mode:'fonet-list',headers,headerMap:new Map(),rows:[headers],patients:[]}};
+const context={norm:x=>String(x??'').trim(),upper:x=>String(x??'').toLocaleUpperCase('tr-TR'),cleanText:x=>String(x??''),uniq:x=>[...new Set(x)],parseDateTime:x=>x?new Date(x):null,dateText:x=>x?.toISOString().slice(0,10)||'',getCell:(row,k)=>row[headers.indexOf(k)],setIfFound:(row,k,v)=>{const i=headers.indexOf(k);if(i>=0)row[i]=v;},state:{mode:'fonet-list',headers,headerMap:new Map(),rows:[headers],patients:[]}};
 context.headerAliases={preop:[]};
 vm.createContext(context);
 for(const [start,end] of [['function malignancyEvidence','function derive'],['function consolidateDuplicatePatients','async function run']])vm.runInContext(code.slice(code.indexOf('  '+start),code.indexOf('  '+end)),context);
