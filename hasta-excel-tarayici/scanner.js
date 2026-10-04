@@ -96,7 +96,7 @@
       #fonet-excel-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px} #fonet-excel-panel .head .title{margin-bottom:0}
       #fonet-excel-panel .close{background:#475569;padding:6px 10px} #fonet-excel-panel .ok{color:#087a36}.bad{color:#b42318}
     </style>
-    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v2.0.0 — Retrospektif mortalite/morbidite</div><button id="fx-close" class="close">Kapat</button></div>
+    <div class="head"><div class="title">FONET Hasta ve Excel Tarayıcı v2.1.0 — Otomatik mortalite/morbidite</div><button id="fx-close" class="close">Kapat</button></div>
     <input id="fx-file" type="file" accept=".xlsx,.xls" />
     <div>
       <button id="fx-load">Excel Listesini Hazırla</button>
@@ -108,7 +108,7 @@
     </div>
     <div id="fonet-excel-status">Excel dosyasını seçin. FONET'te Ameliyat &gt; Ameliyat ekranı açık olmalıdır.</div>
     <div id="fonet-excel-progress"><div id="fonet-excel-bar"></div></div>
-    <div class="note">Bulunamayan hücre korunur. Sonuçlar her hastadan sonra kaydedilir. Mortalite, morbidite ve Clavien alanları aday bulgudur; kanıt sütunundan manuel doğrulayın.</div>
+    <div class="note">Bulunamayan hücre korunur. Sonuçlar her hastadan sonra kaydedilir. Olaylar tarih, kaynak, olumsuzluk ve geçmiş öykü denetimleriyle otomatik doğrulanır.</div>
     <div id="fonet-excel-log"></div>`;
   document.documentElement.appendChild(panel);
   const $ = sel => panel.querySelector(sel);
@@ -136,11 +136,11 @@
     copd:['YANDAŞ KOAH'], hf:['YANDAŞ KALP YETMEZLİĞİ'], goiter:['YANDAŞ GUATR'], smoking:['SİGARA KULLANIMI'], combined:['KOMBİNE AMELİYAT','KOMBİNE  AMELİYAT'], graft:['GREFT'],
     morbidity:['MORBİDİTE'], mortality:['MORTALİTE'], herniaType:['FITIK TİPİ'], drain:['DREN SÜRES','DREN SÜRESİ'], bmi:['BMİ'],
     mortality30:['30 GÜN MORTALİTE'], mortality90:['90 GÜN MORTALİTE'], hospitalMortality:['HASTANE İÇİ MORTALİTE'], deathDate:['ÖLÜM TARİHİ'],
-    morbidity30:['30 GÜN MORBİDİTE'], morbidity90:['90 GÜN MORBİDİTE'], majorMorbidity:['MAJÖR MORBİDİTE ADAYI (CLAVIEN ≥III)'], clavien:['CLAVIEN-DINDO ADAYI'],
+    morbidity30:['30 GÜN MORBİDİTE'], morbidity90:['90 GÜN MORBİDİTE'], majorMorbidity:['MAJÖR MORBİDİTE (CLAVIEN ≥III)','MAJÖR MORBİDİTE ADAYI (CLAVIEN ≥III)'], clavien:['CLAVIEN-DINDO','CLAVIEN-DINDO ADAYI'],
     icu:['YOĞUN BAKIM / ORGAN YETMEZLİĞİ'], reoperation30:['30 GÜN REOPERASYON'], reoperation90:['90 GÜN REOPERASYON'],
-    readmission30:['30 GÜN YENİDEN YATIŞ'], readmission90:['90 GÜN YENİDEN YATIŞ'], ssi:['CERRAHİ ALAN ENFEKSİYONU ADAYI'],
-    pulmonary:['PULMONER KOMPLİKASYON ADAYI'], cardiac:['KARDİYAK KOMPLİKASYON ADAYI'], renal:['RENAL KOMPLİKASYON ADAYI'],
-    thromboembolism:['TROMBOEMBOLİ ADAYI'], gi:['GİS KOMPLİKASYONU ADAYI'], sepsis:['SEPSİS ADAYI']
+    readmission30:['30 GÜN YENİDEN YATIŞ'], readmission90:['90 GÜN YENİDEN YATIŞ'], ssi:['CERRAHİ ALAN ENFEKSİYONU','CERRAHİ ALAN ENFEKSİYONU ADAYI'],
+    pulmonary:['PULMONER KOMPLİKASYON','PULMONER KOMPLİKASYON ADAYI'], cardiac:['KARDİYAK KOMPLİKASYON','KARDİYAK KOMPLİKASYON ADAYI'], renal:['RENAL KOMPLİKASYON','RENAL KOMPLİKASYON ADAYI'],
+    thromboembolism:['TROMBOEMBOLİ','TROMBOEMBOLİ ADAYI'], gi:['GİS KOMPLİKASYONU','GİS KOMPLİKASYONU ADAYI'], sepsis:['SEPSİS','SEPSİS ADAYI']
   };
   const findHeader = key => {
     const aliases=headerAliases[key]||[];
@@ -374,6 +374,7 @@
     if(/(?:YOK|IZLENMEDI|SAPTANMADI|DUSUNULMEDI|EKARTE EDILDI|MEVCUT DEGIL|NEGATIF)/.test(area))return false;
     const localIndex=match.index-Math.max(0,match.index-55);
     if(/OYKU(?:SU)?|GECMIS(?:TE)?|RISK|PROFILAKSI/.test(area.slice(0,localIndex)))return false;
+    if(/SUPHE|SUPHELI|OLASI|ON TANI|PLANLAN|PLANLI|ONERIL|DUSUNULUYOR|ACISINDAN|ARASTIRIL/.test(area))return false;
     return true;
   }
   function classifyPostoperativeEvents(surgeryDate,evidence){
@@ -452,7 +453,6 @@
       ...(details.postoperativeEvidence||[]),
       ...(details.imaging||[]).map(x=>({source:'Radyoloji',text:x,date:parseDateTime(x)})),
       ...(details.history||[]).map(x=>({source:'Hasta geçmişi/konsültasyon',text:x,date:parseDateTime(x)})),
-      ...(details.note||[]).map(x=>({source:'İndeks ameliyat notu',text:x,date:surgeryDate,assumeIndex:true})),
       ...(details.fields.deathDate?[{source:'Hasta ölüm tarihi',text:`${details.fields.deathDate} vefat`,date:parseDateTime(details.fields.deathDate)}]:[])
     ];
     const outcomes=classifyPostoperativeEvents(surgeryDate,evidence);
@@ -493,18 +493,21 @@
     if(/\bE0[4-5](?:\.|-)|GUATR|MULTİNODÜLER|MULTINODULER|TİROİD NODÜL|TIROID NODUL/.test(d.all))setIfFound(row,'goiter',1);
     if(/SİGARA.*(İÇİYOR|KULLANIYOR|AKTİF)|AKTİF SİGARA/.test(d.all))setIfFound(row,'smoking',1);
     if(d.combinedOps.length)setIfFound(row,'combined',d.combinedOps.join('; '));
-    const eventValue=(type,days=90)=>outcomeEvents.some(x=>x.type===type&&x.day<=days)?'Evet':'Hayır';
+    const postopAudit=details.postoperativeAudit;
+    const scanComplete=!!postopAudit&&!postopAudit.failures?.length&&!postopAudit.capped&&!(details.radiologyAudit?.failures?.length);
+    const negativeValue=scanComplete?'Hayır':'Tarama eksik';
+    const eventValue=(type,days=90)=>outcomeEvents.some(x=>x.type===type&&x.day<=days)?'Evet':negativeValue;
     const eventTypes=uniq(outcomeEvents.filter(x=>x.type!=='Ölüm').map(x=>`${x.type} (${x.day}. gün)`));
-    setIfFound(row,'mortality',d.mortality?1:0);
-    setIfFound(row,'mortality30',d.outcomes?.mortality30?'Evet':'Hayır');
-    setIfFound(row,'mortality90',d.outcomes?.mortality90?'Evet':'Hayır');
-    setIfFound(row,'hospitalMortality',d.outcomes?.deathDate&&d.stayDays!==''&&dateDiffDays(d.surgeryDate,d.outcomes.deathDate)<=Number(d.stayDays)?'Evet':'Hayır');
+    setIfFound(row,'mortality',d.mortality?1:(scanComplete?0:''));
+    setIfFound(row,'mortality30',d.outcomes?.mortality30?'Evet':negativeValue);
+    setIfFound(row,'mortality90',d.outcomes?.mortality90?'Evet':negativeValue);
+    setIfFound(row,'hospitalMortality',d.outcomes?.deathDate&&d.stayDays!==''&&dateDiffDays(d.surgeryDate,d.outcomes.deathDate)<=Number(d.stayDays)?'Evet':negativeValue);
     setIfFound(row,'deathDate',dateText(d.outcomes?.deathDate));
-    setIfFound(row,'morbidity',eventTypes.length?eventTypes.join('; '):'Saptanmadı');
-    setIfFound(row,'morbidity30',d.outcomes?.morbidity30?'Evet':'Hayır');
-    setIfFound(row,'morbidity90',d.outcomes?.morbidity90?'Evet':'Hayır');
-    setIfFound(row,'majorMorbidity',d.outcomes?.major?'Evet':'Hayır');
-    setIfFound(row,'clavien',d.outcomes?.maxClavien||'');
+    setIfFound(row,'morbidity',eventTypes.length?eventTypes.join('; '):(scanComplete?'Saptanmadı':'Tarama eksik'));
+    setIfFound(row,'morbidity30',d.outcomes?.morbidity30?'Evet':negativeValue);
+    setIfFound(row,'morbidity90',d.outcomes?.morbidity90?'Evet':negativeValue);
+    setIfFound(row,'majorMorbidity',d.outcomes?.major?'Evet':negativeValue);
+    setIfFound(row,'clavien',d.outcomes?.maxClavien||(scanComplete?'Yok':'Tarama eksik'));
     setIfFound(row,'icu',eventValue('Yoğun bakım / organ yetmezliği'));
     setIfFound(row,'reoperation30',eventValue('Reoperasyon',30));setIfFound(row,'reoperation90',eventValue('Reoperasyon',90));
     setIfFound(row,'readmission30',eventValue('Yeniden yatış',30));setIfFound(row,'readmission90',eventValue('Yeniden yatış',90));
@@ -512,7 +515,10 @@
     setIfFound(row,'pulmonary',eventValue('Pulmoner'));setIfFound(row,'cardiac',eventValue('Kardiyak'));setIfFound(row,'renal',eventValue('Renal'));
     setIfFound(row,'thromboembolism',eventValue('Tromboemboli'));setIfFound(row,'gi',eventValue('GİS'));setIfFound(row,'sepsis',eventValue('Sepsis'));
     row[state.headerMap.get('MORTALİTE/MORBİDİTE KANITI')]=outcomeEvents.map(x=>`${dateText(x.date)} | ${x.day}. gün | ${x.type} | ${x.source} | ${x.text}`).join('\n').slice(0,32000);
-    row[state.headerMap.get('MANUEL DOĞRULAMA')]=outcomeEvents.length?'Aday olaylar kaynak kayıttan doğrulanmalı; olumsuzluk, eski öykü ve planlanan işlemler dışlanmalı.':'90 günlük taranan kayıtlarda aday olay saptanmadı; kurum dışı olaylar FONET ile dışlanamaz.';
+    const automaticStatus=!scanComplete
+      ?`Eksik otomatik doğrulama: ${postopAudit?.failures?.length||0} postoperatif servis hatası${postopAudit?.capped?'; başvuru sınırı aşıldı':''}${details.radiologyAudit?.failures?.length?`; ${details.radiologyAudit.failures.length} radyoloji raporu okunamadı`:''}${!postopAudit?'; postoperatif arka plan taraması kullanılamadı':''}`
+      :outcomeEvents.length?`Otomatik doğrulandı: ${outcomeEvents.length} tarihli olay`:'Otomatik taramada 90 gün içinde olay saptanmadı';
+    row[state.headerMap.get('OTOMATİK DOĞRULAMA')]=automaticStatus;
     if(d.bmi)setIfFound(row,'bmi',d.bmi);
     if(d.materialRows.length)setIfFound(row,'graft',uniq(d.materialRows).join('; '));
     if(/DREN/.test(d.note)){const m=d.note.match(/DREN[^|]{0,60}?(\d+)\s*GÜN/i);if(m)setIfFound(row,'drain',`${m[1]} GÜN`);}
@@ -1064,7 +1070,7 @@
         const values=uniq(ordered.map(p=>norm(getCell(state.rows[p.rowIndex],key))).filter(Boolean));
         if(values.length)setIfFound(base,key,key==='location'?uniq(values.flatMap(v=>v.match(/M[1-5]/g)||[])).sort().join(', '):values.join('; '));
       }
-      for(const header of ['RADYOLOJİ KAYNAKLARI','RADYOLOJİ OKUMA','MALİGNİTE KAYNAĞI','YATIŞ SÜRESİ KAYNAĞI','TC KONTROLÜ','MORTALİTE/MORBİDİTE KANITI','MANUEL DOĞRULAMA','POSTOP TARAMA']){
+      for(const header of ['RADYOLOJİ KAYNAKLARI','RADYOLOJİ OKUMA','MALİGNİTE KAYNAĞI','YATIŞ SÜRESİ KAYNAĞI','TC KONTROLÜ','MORTALİTE/MORBİDİTE KANITI','OTOMATİK DOĞRULAMA','POSTOP TARAMA']){
         const column=state.headerMap.get(header);
         base[column]=uniq(ordered.map(p=>state.rows[p.rowIndex][column]).filter(Boolean)).join('\n').slice(0,32000);
       }
@@ -1119,10 +1125,10 @@
   }
   function ensureOutputColumns(){
     for(const h of ['PROLEN MESH ADEDİ','MALZEME KAYDI','FONET TARAMA DURUMU','MALİGNİTE KAYNAĞI','RADYOLOJİ OKUMA','RADYOLOJİ KAYNAKLARI','YATIŞ SÜRESİ KAYNAĞI','TC KONTROLÜ',
-      '30 GÜN MORTALİTE','90 GÜN MORTALİTE','HASTANE İÇİ MORTALİTE','ÖLÜM TARİHİ','30 GÜN MORBİDİTE','90 GÜN MORBİDİTE','MAJÖR MORBİDİTE ADAYI (CLAVIEN ≥III)','CLAVIEN-DINDO ADAYI',
-      'YOĞUN BAKIM / ORGAN YETMEZLİĞİ','30 GÜN REOPERASYON','90 GÜN REOPERASYON','30 GÜN YENİDEN YATIŞ','90 GÜN YENİDEN YATIŞ','CERRAHİ ALAN ENFEKSİYONU ADAYI',
-      'PULMONER KOMPLİKASYON ADAYI','KARDİYAK KOMPLİKASYON ADAYI','RENAL KOMPLİKASYON ADAYI','TROMBOEMBOLİ ADAYI','GİS KOMPLİKASYONU ADAYI','SEPSİS ADAYI',
-      'MORTALİTE/MORBİDİTE KANITI','MANUEL DOĞRULAMA','POSTOP TARAMA']){
+      '30 GÜN MORTALİTE','90 GÜN MORTALİTE','HASTANE İÇİ MORTALİTE','ÖLÜM TARİHİ','30 GÜN MORBİDİTE','90 GÜN MORBİDİTE','MAJÖR MORBİDİTE (CLAVIEN ≥III)','CLAVIEN-DINDO',
+      'YOĞUN BAKIM / ORGAN YETMEZLİĞİ','30 GÜN REOPERASYON','90 GÜN REOPERASYON','30 GÜN YENİDEN YATIŞ','90 GÜN YENİDEN YATIŞ','CERRAHİ ALAN ENFEKSİYONU',
+      'PULMONER KOMPLİKASYON','KARDİYAK KOMPLİKASYON','RENAL KOMPLİKASYON','TROMBOEMBOLİ','GİS KOMPLİKASYONU','SEPSİS',
+      'MORTALİTE/MORBİDİTE KANITI','OTOMATİK DOĞRULAMA','POSTOP TARAMA']){
       let ix=state.headers.findIndex(x=>upper(x)===upper(h));
       if(ix<0){ix=state.headers.length;state.headers.push(h);state.rows[0][ix]=h;for(let r=1;r<state.rows.length;r++)if(state.rows[r][ix]===undefined)state.rows[r][ix]='';}
       state.headerMap.set(h,ix);

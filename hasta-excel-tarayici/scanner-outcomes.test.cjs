@@ -31,4 +31,9 @@ const chronic=context.classifyPostoperativeEvents(surgery,[
   {source:'Başvuru',date:new Date(2025,0,9),text:'Geçmişte yatış öyküsü var.'}
 ]);
 assert.equal(chronic.events.length,0);
+const uncertain=context.classifyPostoperativeEvents(surgery,[
+  {source:'Konsültasyon',date:new Date(2025,0,7),text:'Pulmoner emboli şüphesiyle tetkik planlandı.'},
+  {source:'Servis',date:new Date(2025,0,8),text:'Yara enfeksiyonu açısından değerlendirildi.'}
+]);
+assert.equal(uncertain.events.length,0);
 console.log('Retrospective outcome tests passed: windows, negation, morbidity, reoperation and mortality.');

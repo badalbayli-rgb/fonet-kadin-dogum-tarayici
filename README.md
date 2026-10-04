@@ -15,8 +15,9 @@ FONET HBYS ameliyat listesindeki kadın ve erkek tüm kayıtları ExtJS veri dep
 - Duraklatma, devam etme, durdurma ve Excel dışa aktarma sunar.
 - Verileri yalnızca tarayıcı belleğinde tutar; başka bir sunucuya göndermez.
 - İndeks ameliyatından sonraki 0–30 ve 31–90 günlük hasta başvurularını, konsültasyonları, hizmet/işlem kayıtlarını, ameliyat geçmişini ve radyoloji raporlarını arka planda tarar.
-- Mortalite, yeniden yatış, reoperasyon, yoğun bakım/organ yetmezliği, cerrahi alan enfeksiyonu/SSO, pulmoner, kardiyak, renal, tromboembolik, gastrointestinal ve sepsis adaylarını ayrı Excel sütunlarına yazar.
-- En yüksek Clavien–Dindo derecesini yalnızca **aday sınıflama** olarak üretir; kaynak tarihini ve ilgili metni `MORTALİTE/MORBİDİTE KANITI` sütununda tutar ve manuel doğrulama gerektirir.
+- Mortalite, yeniden yatış, reoperasyon, yoğun bakım/organ yetmezliği, cerrahi alan enfeksiyonu/SSO, pulmoner, kardiyak, renal, tromboembolik, gastrointestinal ve sepsis sonuçlarını ayrı Excel sütunlarına yazar.
+- Olumsuz, geçmiş öykü, risk, profilaksi, şüphe ve plan ifadelerini dışlayarak olayları otomatik sınıflandırır; en yüksek Clavien–Dindo derecesini üretir ve tarihli kaynak metnini `MORTALİTE/MORBİDİTE KANITI` sütununda saklar.
+- Bir servis yanıtı alınamazsa sahte `Hayır` üretmek yerine `OTOMATİK DOĞRULAMA` sütununa eksik tarama uyarısı yazar.
 
 ## Kullanım
 
